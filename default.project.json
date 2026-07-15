@@ -1,0 +1,48 @@
+{
+  "name": "BabyFootPower",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/ReplicatedStorage" }
+    },
+
+    "ServerScriptService": {
+      "Server": { "$path": "src/ServerScriptService" }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/StarterPlayer/StarterPlayerScripts" }
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Locked": true,
+          "Color": [0.10, 0.12, 0.16],
+          "Material": "SmoothPlastic",
+          "Position": [0, -2, 0],
+          "Size": [400, 4, 400]
+        }
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0.35, 0.35, 0.45],
+        "Brightness": 2,
+        "ClockTime": 20,
+        "FogColor": [0.05, 0.05, 0.10],
+        "FogEnd": 600,
+        "Technology": "Future"
+      }
+    }
+  }
+}
