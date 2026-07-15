@@ -9,9 +9,11 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Leaderboard = {}
 
 local ordered: OrderedDataStore? = nil
-pcall(function()
-	ordered = DataStoreService:GetOrderedDataStore(Config.SaveKey .. "_top")
-end)
+if game.PlaceId ~= 0 then  -- place non publié => OrderedDataStore inaccessible
+	pcall(function()
+		ordered = DataStoreService:GetOrderedDataStore(Config.SaveKey .. "_top")
+	end)
+end
 
 local gui: SurfaceGui? = nil
 
@@ -36,9 +38,13 @@ local function nameFor(userId: number): string
 end
 
 function Leaderboard.refresh()
-	if not gui or not ordered then return end
+	if not gui then return end
 	local label = gui:FindFirstChild("List") :: TextLabel?
 	if not label then return end
+	if not ordered then
+		label.Text = "Classement disponible après publication du jeu."
+		return
+	end
 
 	local ok, pages = pcall(function()
 		return ordered:GetSortedAsync(false, 10)

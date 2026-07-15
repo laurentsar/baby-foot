@@ -7,12 +7,18 @@ local Config = require(ReplicatedStorage.Shared.Config)
 
 local DataModule = {}
 
+-- Un place non publié a PlaceId == 0 : dans ce cas le DataStore est inaccessible
+-- (et Roblox logge un message même sous pcall). On l'évite proprement.
 local store: DataStore? = nil
-local ok = pcall(function()
-	store = DataStoreService:GetDataStore(Config.SaveKey)
-end)
-if not ok then
-	warn("[BabyFoot] DataStore indisponible — profils en mémoire uniquement.")
+if game.PlaceId ~= 0 then
+	local ok = pcall(function()
+		store = DataStoreService:GetDataStore(Config.SaveKey)
+	end)
+	if not ok then
+		warn("[BabyFoot] DataStore indisponible — profils en mémoire uniquement.")
+	end
+else
+	warn("[BabyFoot] Place non publié — sauvegarde désactivée (profils en mémoire).")
 end
 
 function DataModule.default()
