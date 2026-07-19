@@ -57,7 +57,9 @@ function Leaderboard.refresh()
 	local rows = {}
 	local rank = 1
 	for _, entry in pages:GetCurrentPage() do
-		local uid = tonumber((entry.key :: string):gsub("u_", "")) or 0
+		-- Parenthèses obligatoires : gsub renvoie la chaîne ET le nombre de
+		-- remplacements, et ce second retour partirait en base de tonumber.
+		local uid = tonumber(((entry.key :: string):gsub("u_", ""))) or 0
 		local medal = rank == 1 and "🥇" or rank == 2 and "🥈" or rank == 3 and "🥉" or (rank .. ".")
 		table.insert(rows, string.format("%s  %s  —  %s $",
 			medal, nameFor(uid), Config.abbreviate(entry.value)))
