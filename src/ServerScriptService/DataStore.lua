@@ -26,10 +26,11 @@ function DataModule.default()
 	return {
 		money = 0,
 		power = 0,
-		dumbbell = 1,   -- index dans Config.Dumbbells
-		ball = 1,       -- index dans Config.Balls
-		countLevel = 0, -- niveau nombre de figurines
-		valueLevel = 0, -- niveau valeur des figurines
+		dumbbell = 1,    -- index dans Config.Dumbbells
+		ball = 1,        -- index dans Config.Balls
+		valueLevel = 0,  -- niveau valeur des joueurs
+		slots = Config.StartingSlots, -- emplacements débloqués sur les bases
+		cards = {},      -- collection : { {name = "...", rarity = "commun"}, ... }
 		rebirths = 0,
 		totalEarned = 0, -- pour le classement mondial
 	}

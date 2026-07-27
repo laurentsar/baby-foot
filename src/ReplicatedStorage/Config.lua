@@ -36,18 +36,93 @@ Config.Balls = {
 }
 
 -------------------------------------------------------------------------------
--- JOUEURS DU BABY-FOOT (les figurines sur les tiges)
--- playerCount : combien de figurines sur le terrain (= nb de cibles).
--- playerValue : argent de base que donne chaque figurine touchée.
+-- ÉQUIPE : 4 BASES (les tiges du baby-foot), 11 JOUEURS AU MAXIMUM.
+-- Répartition d'un vrai baby-foot vue depuis le tireur : attaque adverse en
+-- premier, gardien au fond. 3 + 5 + 2 + 1 = 11.
+-- depth = position de la base entre la ligne d'engagement (0) et le but (1).
 -------------------------------------------------------------------------------
-Config.PlayerCount = {
-	base = 10,
-	perLevel = 2,          -- +2 figurines par niveau
-	maxLevel = 80,         -- plafond (repoussé par renaissance / pass)
-	baseCost = 800,
-	costGrowth = 1.6,      -- coût *= 1.6 par niveau
+Config.Bases = {
+	{ name = "Attaque", slots = 3, depth = 0.26 },
+	{ name = "Milieu",  slots = 5, depth = 0.48 },
+	{ name = "Défense", slots = 2, depth = 0.70 },
+	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
+Config.MaxSquad = 11        -- plafond dur : on ne place jamais plus de 11 joueurs
+Config.StartingSlots = 4    -- emplacements débloqués au départ
+
+-- Coût du prochain emplacement (du 5e au 11e).
+Config.Slot = {
+	baseCost = 3000,
+	costGrowth = 2.2,
+}
+
+function Config.slotCost(unlocked: number): number
+	local step = math.max(0, unlocked - Config.StartingSlots)
+	return math.floor(Config.Slot.baseCost * (Config.Slot.costGrowth ^ step))
+end
+
+-- Nombre total d'emplacements du terrain (= somme des bases).
+function Config.totalSlots(): number
+	local n = 0
+	for _, base in Config.Bases do
+		n += base.slots
+	end
+	return n
+end
+
+-------------------------------------------------------------------------------
+-- COLLECTION : chaque joueur de foot est une carte tirée aux dés.
+-- mult = multiplicateur d'argent quand ce joueur est touché par la balle.
+-- weight = poids de tirage (plus c'est haut, plus c'est fréquent).
+-------------------------------------------------------------------------------
+Config.Rarities = {
+	{ key = "commun",     name = "Commun",     mult = 1,  weight = 54, color = Color3.fromRGB(190, 195, 205) },
+	{ key = "rare",       name = "Rare",       mult = 3,  weight = 27, color = Color3.fromRGB(70, 160, 255)  },
+	{ key = "epique",     name = "Épique",     mult = 8,  weight = 13, color = Color3.fromRGB(180, 110, 255) },
+	{ key = "legendaire", name = "Légendaire", mult = 22, weight = 5,  color = Color3.fromRGB(255, 180, 40)  },
+	{ key = "mythique",   name = "Mythique",   mult = 60, weight = 1,  color = Color3.fromRGB(255, 80, 120)  },
+}
+
+function Config.rarity(key: string)
+	for _, r in Config.Rarities do
+		if r.key == key then return r end
+	end
+	return Config.Rarities[1]
+end
+
+-- Noms inventés (pas de vrai joueur : on ne veut pas de nom sous licence).
+Config.NamePool = {
+	first = { "Léo", "Marco", "Kylian", "Enzo", "Tibo", "Ravi", "Sacha", "Nino",
+		"Diego", "Yanis", "Milo", "Aki", "Zoran", "Bruno", "Kofi", "Iker" },
+	last = { "Foudre", "Tornade", "Bulldozer", "Comète", "Panthère", "Roquette",
+		"Muraille", "Tonnerre", "Éclair", "Cyclone", "Marteau", "Faucon",
+		"Requin", "Vortex", "Dragon", "Guépard" },
+}
+
+-------------------------------------------------------------------------------
+-- DÉS : on paie, on lance, on obtient un joueur.
+-- Le coût monte avec la taille de la collection pour que la chasse au Mythique
+-- reste un objectif de fin de partie.
+-------------------------------------------------------------------------------
+Config.Dice = {
+	baseCost = 600,
+	costGrowth = 1.035,    -- coût *= par carte déjà possédée
+	maxCost = 50000000,
+	cooldown = 0.6,        -- délai serveur min entre deux lancers
+	vipDiscount = 0.7,     -- pass VIP : dés 30 % moins chers
+	luckyRerollWeight = 3, -- pass Dés Chanceux : le poids des communs est divisé par 3
+}
+
+function Config.diceCost(cardsOwned: number, hasVIP: boolean): number
+	local c = Config.Dice.baseCost * (Config.Dice.costGrowth ^ cardsOwned)
+	if hasVIP then c *= Config.Dice.vipDiscount end
+	return math.floor(math.min(c, Config.Dice.maxCost))
+end
+
+-------------------------------------------------------------------------------
+-- VALEUR DES JOUEURS (multipliée ensuite par la rareté de la carte touchée).
+-------------------------------------------------------------------------------
 Config.PlayerValue = {
 	base = 10,
 	growth = 1.5,          -- valeur *= 1.5 par niveau
@@ -59,10 +134,11 @@ Config.PlayerValue = {
 -- RENAISSANCE (rebirth) : reset argent + upgrades, gagne un multiplicateur permanent.
 -- 1 renaissance = x2, 2 = x4, 3 = x6, puis +2 par renaissance (mult = 2 * n).
 -------------------------------------------------------------------------------
+-- La collection de joueurs n'est PAS remise à zéro : c'est la progression longue
+-- du jeu. Une renaissance ne reprend que l'argent, la puissance et le matériel.
 Config.Rebirth = {
 	baseCost = 50000,      -- coût de la 1re renaissance
 	costGrowth = 4,        -- coût *= 4 par renaissance
-	capacityBonus = 10,    -- +10 au plafond de figurines par renaissance
 }
 
 function Config.rebirthMultiplier(rebirths: number, hasRebirthPass: boolean): number
@@ -80,16 +156,13 @@ end
 -- IMPORTANT : remplace les IDs 0 par les vrais IDs créés dans Roblox Creator Hub.
 -------------------------------------------------------------------------------
 Config.Passes = {
-	VIP          = { id = 0, price = 199, label = "VIP",              desc = "x2 argent + capacité de joueurs + étiquette VIP au-dessus du nom" },
+	VIP          = { id = 0, price = 199, label = "VIP",              desc = "x2 argent + dés 30% moins chers + étiquette VIP au-dessus du nom" },
 	MoneyX2      = { id = 0, price = 149, label = "Argent x2",        desc = "Double tout l'argent gagné (cumulable avec VIP)" },
 	RebirthX2    = { id = 0, price = 249, label = "Renaissance x2",   desc = "Double le multiplicateur de renaissance" },
-	InfPlayers   = { id = 0, price = 299, label = "Joueurs Infinis",  desc = "Place autant de figurines que tu veux sur le terrain" },
+	LuckyDice    = { id = 0, price = 299, label = "Dés Chanceux",     desc = "Bien moins de communs : les raretés sortent beaucoup plus souvent" },
 	BallSpeedX2  = { id = 0, price = 129, label = "Vitesse Balle x2", desc = "La balle part deux fois plus vite" },
 	BigField     = { id = 0, price = 179, label = "Grand Terrain",    desc = "Le fond du baby-foot est deux fois plus grand (but plus facile)" },
 }
-
--- Capacité bonus de figurines apportée par VIP.
-Config.VIPCapacityBonus = 12
 
 -------------------------------------------------------------------------------
 -- ENTRAÎNEMENT
@@ -105,10 +178,10 @@ Config.Shot = {
 	baseSpeed = 90,        -- vitesse de base d'un tir
 	powerToSpeed = 0.35,   -- studs/s de vitesse ajoutés par point de puissance
 	maxSpeed = 1400,
-	-- Distance parcourue ≈ v²/(2*decel) : le terrain ayant été réduit de moitié,
-	-- la décélération est doublée pour que marquer demande autant de puissance.
-	decel = 180,           -- décélération (studs/s²)
-	hitRadius = 5,         -- rayon de collision balle<->figurine
+	-- Distance parcourue ≈ v²/(2*decel) : calée sur la longueur du demi-terrain
+	-- (agrandi), pour que marquer demande une vraie puissance.
+	decel = 95,            -- décélération (studs/s²)
+	hitRadius = 6,         -- rayon de collision balle<->joueur
 	scoreMultiplier = 3,   -- x3 argent si la balle atteint le fond du baby-foot
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
@@ -141,20 +214,19 @@ end
 -------------------------------------------------------------------------------
 -- GÉOMÉTRIE DU TERRAIN (studs) — le baby-foot est généré proProcéduralement.
 -------------------------------------------------------------------------------
--- Le terrain ne fait plus que la moitié avant : on tire depuis juste derrière la
--- ligne d'engagement, tout l'espace restant est la zone de jeu (plus de longue
--- approche vide). La ligne est infranchissable pour les personnages, la balle
--- la traverse (elle est simulée en Anchored, sans collision).
+-- Une SEULE moitié de baby-foot, mais bien plus grande qu'un demi-terrain : on
+-- tire de derrière la ligne d'engagement et les 4 bases occupent tout l'espace.
+-- La ligne est infranchissable pour les personnages ; la balle la traverse
+-- (elle est simulée en Anchored, sans collision).
 Config.Field = {
 	origin = Vector3.new(0, 3, 0),   -- centre du terrain
-	length = 80,                     -- longueur (axe de tir, +Z = but adverse)
-	width = 60,                      -- largeur
-	wallHeight = 8,
-	rows = 5,                        -- nb de rangées de figurines
-	goalDepth = 10,                  -- profondeur du fond/but
-	shootLine = -34,                 -- Z du point de tir (ton côté)
+	length = 150,                    -- longueur (axe de tir, +Z = but adverse)
+	width = 110,                     -- largeur
+	wallHeight = 10,
+	goalDepth = 12,                  -- profondeur du fond/but
+	shootLine = -66,                 -- Z du point de tir (ton côté)
 	barrierOffset = 6,               -- ligne infranchissable, en avant du point de tir
-	barrierHeight = 14,              -- assez haut pour qu'on ne saute pas par-dessus
+	barrierHeight = 16,              -- assez haut pour qu'on ne saute pas par-dessus
 }
 
 Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain
@@ -162,20 +234,42 @@ Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain
 -------------------------------------------------------------------------------
 -- Helpers de coût / valeur.
 -------------------------------------------------------------------------------
-function Config.playerCountCost(level: number): number
-	return math.floor(Config.PlayerCount.baseCost * (Config.PlayerCount.costGrowth ^ level))
-end
-
-function Config.playerCountAt(level: number): number
-	return Config.PlayerCount.base + level * Config.PlayerCount.perLevel
-end
-
 function Config.playerValueCost(level: number): number
 	return math.floor(Config.PlayerValue.baseCost * (Config.PlayerValue.costGrowth ^ level))
 end
 
 function Config.playerValueAt(level: number): number
 	return math.floor(Config.PlayerValue.base * (Config.PlayerValue.growth ^ level))
+end
+
+-- Tirage d'une rareté. `lucky` = pass Dés Chanceux : le poids des communs est
+-- divisé, ce qui remonte mécaniquement toutes les autres raretés.
+function Config.rollRarity(rng: Random, lucky: boolean): string
+	local weights = {}
+	local total = 0
+	for i, r in Config.Rarities do
+		local w = r.weight
+		if lucky and r.key == "commun" then
+			w /= Config.Dice.luckyRerollWeight
+		end
+		weights[i] = w
+		total += w
+	end
+	local pick = rng:NextNumber() * total
+	local acc = 0
+	for i, r in Config.Rarities do
+		acc += weights[i]
+		if pick <= acc then
+			return r.key
+		end
+	end
+	return Config.Rarities[1].key
+end
+
+function Config.randomPlayerName(rng: Random): string
+	local pool = Config.NamePool
+	return pool.first[rng:NextInteger(1, #pool.first)]
+		.. " " .. pool.last[rng:NextInteger(1, #pool.last)]
 end
 
 -- Formatage abrégé des grands nombres (1.2K, 3.4M, ...).

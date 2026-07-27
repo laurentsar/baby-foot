@@ -87,7 +87,7 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 	figures.Name = "Figures"
 	figures.Parent = root
 
-	return {
+	local field = {
 		root = root,
 		figuresFolder = figures,
 		origin = origin,
@@ -98,53 +98,137 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		shootPos = Vector3.new(origin.X, origin.Y + 2, shootZ),
 		shootPad = shootPad,
 		barrierZ = barrierZ,
-		rows = F.rows,
 	}
+
+	FieldBuilder.buildBases(field)
+	return field
 end
 
--- (Re)peuple les rangées de figurines selon le nb de joueurs voulu.
-function FieldBuilder.populateFigures(field, count: number)
-	field.figuresFolder:ClearAllChildren()
-	if count <= 0 then return end
-
-	-- Les figurines sont bien plus nombreuses qu'avant : on privilégie des rangées
-	-- larges (8 de front) plutôt qu'un carré, sinon elles s'empilent en profondeur
-	-- sur la moitié de terrain qui reste.
-	local ROW_MAX = 8
-	local rows = math.clamp(math.ceil(count / ROW_MAX), 1, 10)
-	local placed = 0
-
-	-- Réparties entre la ligne d'engagement et le but : même un tir faible touche
-	-- les figurines proches, les rangées lointaines exigent plus de puissance.
-	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 8
-	local endZ = field.goalZ - Config.Field.goalDepth - 6
+-- Emplacements du terrain, dans l'ordre où ils se débloquent : base par base
+-- (attaque → gardien), centrés sur la largeur. Retourne une liste de
+-- { base, position: Vector3 } de Config.totalSlots() entrées.
+function FieldBuilder.slotLayout(field)
+	local slots = {}
+	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 14
+	local endZ = field.goalZ - Config.Field.goalDepth - 8
 	local spanZ = endZ - startZ
 
-	for r = 0, rows - 1 do
-		local z = startZ + (rows == 1 and spanZ / 2 or (spanZ * r / (rows - 1)))
-		-- Le reste est réparti sur les rangées restantes puis centré : une dernière
-		-- rangée incomplète reste au milieu du terrain au lieu de coller à gauche.
-		local inRow = math.ceil((count - placed) / (rows - r))
-		for c = 0, inRow - 1 do
-			if placed >= count then break end
-			local x = field.origin.X + ((c + 0.5) / inRow - 0.5) * (field.width - 8)
+	for _, base in Config.Bases do
+		local z = startZ + spanZ * base.depth
+		for c = 0, base.slots - 1 do
+			local x = field.origin.X + ((c + 0.5) / base.slots - 0.5) * (field.width - 14)
+			table.insert(slots, {
+				base = base.name,
+				position = Vector3.new(x, field.origin.Y + 3.5, z),
+			})
+		end
+	end
+	return slots
+end
+
+-- Les tiges du baby-foot : une barre traversante par base. Purement visuelle
+-- (la balle est simulée sans collision), mais c'est ce qui donne la lecture
+-- « 4 bases » du terrain.
+function FieldBuilder.buildBases(field)
+	if field.basesFolder then field.basesFolder:Destroy() end
+	local folder = Instance.new("Folder")
+	folder.Name = "Bases"
+	folder.Parent = field.root
+	field.basesFolder = folder
+
+	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 14
+	local endZ = field.goalZ - Config.Field.goalDepth - 8
+	local spanZ = endZ - startZ
+
+	for i, base in Config.Bases do
+		local z = startZ + spanZ * base.depth
+		local bar = part("Base" .. i, Vector3.new(field.width + 8, 1.2, 1.2),
+			CFrame.new(field.origin.X, field.origin.Y + 7, z),
+			Color3.fromRGB(190, 195, 210), folder, Enum.Material.Metal)
+		bar.CanCollide = false
+
+		-- Étiquette de la base (Attaque / Milieu / Défense / Gardien).
+		local sign = Instance.new("BillboardGui")
+		sign.Name = "Etiquette"
+		sign.Size = UDim2.fromOffset(190, 34)
+		sign.StudsOffset = Vector3.new(0, 3, 0)
+		sign.AlwaysOnTop = false
+		sign.Parent = bar
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundTransparency = 1
+		lbl.Text = string.format("%s (%d)", base.name, base.slots)
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextScaled = true
+		lbl.TextColor3 = Color3.fromRGB(220, 225, 240)
+		lbl.TextStrokeTransparency = 0.4
+		lbl.Parent = sign
+	end
+end
+
+-- Place l'équipe sur les bases. `squad` = liste de cartes { name, rarity },
+-- au plus Config.MaxSquad. Les emplacements non pourvus restent vides (visibles
+-- comme un socle gris) : on voit ce qu'il reste à débloquer.
+function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
+	field.figuresFolder:ClearAllChildren()
+	local slots = FieldBuilder.slotLayout(field)
+
+	for i, slot in slots do
+		local unlocked = i <= unlockedSlots
+		local card = squad[i]
+
+		if not card then
+			-- Socle vide : emplacement débloqué mais sans joueur, ou verrouillé.
+			local pad = Instance.new("Part")
+			pad.Name = "Emplacement"
+			pad.Size = Vector3.new(4, 0.4, 4)
+			pad.Anchored = true
+			pad.CanCollide = false
+			pad.Material = Enum.Material.SmoothPlastic
+			pad.Color = if unlocked then Color3.fromRGB(90, 95, 110) else Color3.fromRGB(45, 47, 58)
+			pad.Transparency = if unlocked then 0.2 else 0.6
+			pad.CFrame = CFrame.new(slot.position - Vector3.new(0, 3.3, 0))
+			pad.Parent = field.figuresFolder
+		else
+			local rarity = Config.rarity(card.rarity)
 			local fig = Instance.new("Part")
 			fig.Name = "Figure"
-			fig.Size = Vector3.new(2.4, 5, 2.4)
+			fig.Size = Vector3.new(3, 6, 3)
 			fig.Anchored = true
-			fig.Color = Color3.fromRGB(230, 60, 60)
-			fig.Material = Enum.Material.SmoothPlastic
-			fig.CFrame = CFrame.new(x, field.origin.Y + 3, z)
+			fig.CanCollide = false
+			fig.Color = rarity.color
+			fig.Material = if card.rarity == "commun" then Enum.Material.SmoothPlastic else Enum.Material.Neon
+			fig.CFrame = CFrame.new(slot.position)
+			-- Lu par le moteur de tir : l'argent d'un joueur touché dépend de sa rareté.
+			fig:SetAttribute("Mult", rarity.mult)
+			fig:SetAttribute("Rarete", rarity.name)
+			fig:SetAttribute("Joueur", card.name)
 			fig.Parent = field.figuresFolder
-			-- tête déco
+
 			local head = Instance.new("Part")
+			head.Name = "Tete"
 			head.Shape = Enum.PartType.Ball
-			head.Size = Vector3.new(2, 2, 2)
+			head.Size = Vector3.new(2.4, 2.4, 2.4)
 			head.Anchored = true
+			head.CanCollide = false
 			head.Color = Color3.fromRGB(255, 220, 180)
-			head.CFrame = fig.CFrame + Vector3.new(0, 3.2, 0)
+			head.CFrame = fig.CFrame + Vector3.new(0, 3.8, 0)
 			head.Parent = fig
-			placed += 1
+
+			local tag = Instance.new("BillboardGui")
+			tag.Name = "Nom"
+			tag.Size = UDim2.fromOffset(180, 40)
+			tag.StudsOffset = Vector3.new(0, 4.6, 0)
+			tag.Parent = fig
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.fromScale(1, 1)
+			lbl.BackgroundTransparency = 1
+			lbl.Text = string.format("%s\n%s ×%s", card.name, rarity.name, Config.abbreviate(rarity.mult))
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextScaled = true
+			lbl.TextColor3 = rarity.color
+			lbl.TextStrokeTransparency = 0.3
+			lbl.Parent = tag
 		end
 	end
 end

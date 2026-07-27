@@ -22,9 +22,15 @@ local rShoot = Remotes.get("Shoot")
 local rBuy = Remotes.get("BuyUpgrade")
 local rRebirth = Remotes.get("Rebirth")
 local rBuyPass = Remotes.get("BuyPass")
+local rRoll = Remotes.get("RollDice")
 local rStats = Remotes.get("StatsUpdate")
 local rShotResult = Remotes.get("ShotResult")
+local rDiceResult = Remotes.get("DiceResult")
+local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
+
+-- Tirage des dés : un seul générateur serveur, jamais le client.
+local rng = Random.new()
 
 -------------------------------------------------------------------------------
 -- État en mémoire par joueur.
@@ -36,6 +42,7 @@ type Session = {
 	passes: { [string]: boolean },
 	lastTrain: number,
 	lastShot: number,
+	lastRoll: number,
 }
 
 local sessions: { [Player]: Session } = {}
@@ -68,13 +75,29 @@ local function moneyMultiplier(session: Session): number
 	return m
 end
 
--- Plafond de figurines : base config + renaissances + VIP + (infini si pass).
-local function figureCap(session: Session): number
-	if session.passes.InfPlayers then return math.huge end
-	local cap = Config.PlayerCount.maxLevel
-	cap += session.data.rebirths * Config.Rebirth.capacityBonus
-	if session.passes.VIP then cap += Config.VIPCapacityBonus end
-	return cap
+-- Emplacements réellement disponibles : ce que le joueur a débloqué, borné par
+-- les 11 places du terrain (plafond dur, aucun pass ne le dépasse).
+local function unlockedSlots(session: Session): number
+	return math.clamp(session.data.slots, 0, math.min(Config.MaxSquad, Config.totalSlots()))
+end
+
+-- L'équipe posée sur les bases : les meilleures cartes de la collection, dans la
+-- limite des emplacements débloqués. Trié par multiplicateur décroissant.
+local function squadOf(session: Session)
+	local cards = table.clone(session.data.cards)
+	table.sort(cards, function(a, b)
+		local ma = Config.rarity(a.rarity).mult
+		local mb = Config.rarity(b.rarity).mult
+		if ma == mb then
+			return (a.name or "") < (b.name or "")
+		end
+		return ma > mb
+	end)
+	local squad = {}
+	for i = 1, math.min(#cards, unlockedSlots(session)) do
+		squad[i] = cards[i]
+	end
+	return squad
 end
 
 -------------------------------------------------------------------------------
@@ -86,7 +109,8 @@ local function buildStats(session: Session)
 	local ball = Config.Balls[d.ball]
 	local nextDumb = Config.Dumbbells[d.dumbbell + 1]
 	local nextBall = Config.Balls[d.ball + 1]
-	local capLevel = figureCap(session)
+	local slots = unlockedSlots(session)
+	local maxSlots = math.min(Config.MaxSquad, Config.totalSlots())
 	return {
 		money = d.money,
 		power = d.power,
@@ -97,10 +121,12 @@ local function buildStats(session: Session)
 		nextDumbbell = nextDumb and { name = nextDumb.name, cost = nextDumb.cost } or nil,
 		ball = { name = ball.name, moneyMult = ball.moneyMult, level = d.ball },
 		nextBall = nextBall and { name = nextBall.name, cost = nextBall.cost } or nil,
-		playerCount = Config.playerCountAt(d.countLevel),
-		playerCountCap = (capLevel == math.huge) and -1 or capLevel, -- -1 = infini
-
-		playerCountCost = Config.playerCountCost(d.countLevel),
+		slots = slots,
+		maxSlots = maxSlots,
+		slotCost = Config.slotCost(slots),
+		squadSize = math.min(#d.cards, slots),
+		cardsOwned = #d.cards,
+		diceCost = Config.diceCost(#d.cards, session.passes.VIP == true),
 		playerValue = Config.playerValueAt(d.valueLevel),
 		playerValueCost = Config.playerValueCost(d.valueLevel),
 		rebirthCost = Config.rebirthCost(d.rebirths),
@@ -124,17 +150,21 @@ local function updateLeaderstats(session: Session, player: Player)
 end
 
 -------------------------------------------------------------------------------
--- Figurines : (re)peuple le terrain selon le nb voulu et le plafond.
+-- Terrain : repose l'équipe sur les bases (11 emplacements au maximum).
 -------------------------------------------------------------------------------
-local function desiredFigures(session: Session): number
-	local want = Config.playerCountAt(session.data.countLevel)
-	local cap = figureCap(session)
-	if cap == math.huge then return want end
-	return math.min(want, cap)
+local function repopulate(session: Session)
+	FieldBuilder.placeSquad(session.field, squadOf(session), unlockedSlots(session))
 end
 
-local function repopulate(session: Session)
-	FieldBuilder.populateFigures(session.field, desiredFigures(session))
+local function pushCollection(player: Player)
+	local session = sessions[player]
+	if not session then return end
+	rCollection:FireClient(player, {
+		cards = session.data.cards,
+		squad = squadOf(session),
+		unlockedSlots = unlockedSlots(session),
+		maxSlots = math.min(Config.MaxSquad, Config.totalSlots()),
+	})
 end
 
 -------------------------------------------------------------------------------
@@ -223,6 +253,8 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	local halfW = field.width / 2 - 2
 	local hitSet: { [Instance]: boolean } = {}
 	local hits = 0
+	local hitValue = 0   -- somme des multiplicateurs de rareté touchés
+	local best = nil     -- meilleure rareté touchée, pour le retour client
 	local scored = false
 	local elapsed = 0
 
@@ -241,13 +273,21 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 		ball.Position = Vector3.new(pos.X, field.shootPos.Y, pos.Z)
 
-		-- Collisions figurines.
+		-- Collisions joueurs. Les socles d'emplacement vide sont dans le même
+		-- dossier : seuls les "Figure" comptent, sinon un terrain à moitié vide
+		-- rapporterait autant qu'une équipe complète.
 		for _, fig in field.figuresFolder:GetChildren() do
-			if fig:IsA("BasePart") and not hitSet[fig] then
+			if fig:IsA("BasePart") and fig.Name == "Figure" and not hitSet[fig] then
 				local fp = fig.Position
 				if (Vector3.new(fp.X, ball.Position.Y, fp.Z) - ball.Position).Magnitude < S.hitRadius then
 					hitSet[fig] = true
 					hits += 1
+					local mult = tonumber(fig:GetAttribute("Mult")) or 1
+					hitValue += mult
+					local rarete = fig:GetAttribute("Rarete")
+					if typeof(rarete) == "string" and (best == nil or mult > best.mult) then
+						best = { mult = mult, name = rarete }
+					end
 					fig.Color = Color3.fromRGB(255, 220, 60)
 					task.delay(0, function() fig:Destroy() end)
 				end
@@ -273,10 +313,11 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	task.delay(0.15, function() ball:Destroy() end)
 
-	-- Calcul du gain.
+	-- Calcul du gain : chaque joueur touché rapporte selon SA rareté, d'où
+	-- hitValue (somme des multiplicateurs) plutôt qu'un simple nombre de touches.
 	local perHit = Config.playerValueAt(session.data.valueLevel)
 		* Config.Balls[session.data.ball].moneyMult
-	local money = hits * perHit * moneyMultiplier(session)
+	local money = hitValue * perHit * moneyMultiplier(session)
 	if scored then
 		money *= S.scoreMultiplier  -- x3 si la balle atteint le fond
 	end
@@ -292,6 +333,7 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 		money = money,
 		scored = scored,
 		tier = tier.label,
+		best = best and best.name or nil,
 	})
 
 	-- Respawn des cibles après le tir.
@@ -323,17 +365,19 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 			d.money -= nxt.cost
 			d.ball += 1
 		end
-	elseif kind == "count" then
-		local cap = figureCap(session)
-		if Config.playerCountAt(d.countLevel + 1) <= cap then
-			local cost = Config.playerCountCost(d.countLevel)
+	elseif kind == "slot" then
+		local slots = unlockedSlots(session)
+		local maxSlots = math.min(Config.MaxSquad, Config.totalSlots())
+		if slots >= maxSlots then
+			rToast:FireClient(player, "Équipe au complet : 11 joueurs, c'est le maximum !")
+		else
+			local cost = Config.slotCost(slots)
 			if d.money >= cost then
 				d.money -= cost
-				d.countLevel += 1
+				d.slots = slots + 1
 				repopulate(session)
+				pushCollection(player)
 			end
-		else
-			rToast:FireClient(player, "Plafond de figurines atteint — fais une Renaissance ou prends un pass !")
 		end
 	elseif kind == "value" then
 		local cost = Config.playerValueCost(d.valueLevel)
@@ -345,6 +389,52 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 
 	updateLeaderstats(session, player)
 	pushStats(player)
+end)
+
+-------------------------------------------------------------------------------
+-- DÉS : on paie, le serveur tire la rareté, la carte entre dans la collection.
+-- Le client n'envoie rien d'autre que « je lance » : ni le résultat, ni le coût.
+-------------------------------------------------------------------------------
+local MAX_CARDS = 200  -- garde-fou : une collection illimitée ferait grossir la
+                       -- sauvegarde sans fin (limite DataStore par clé).
+
+rRoll.OnServerEvent:Connect(function(player)
+	local session = sessions[player]
+	if not session then return end
+	local now = os.clock()
+	if now - session.lastRoll < Config.Dice.cooldown then return end
+	session.lastRoll = now
+
+	local d = session.data
+	local cost = Config.diceCost(#d.cards, session.passes.VIP == true)
+	if d.money < cost then
+		rToast:FireClient(player, "Pas assez d'argent pour lancer les dés ("
+			.. Config.abbreviate(cost) .. " $)")
+		return
+	end
+	d.money -= cost
+
+	local key = Config.rollRarity(rng, session.passes.LuckyDice == true)
+	local card = { name = Config.randomPlayerName(rng), rarity = key }
+	table.insert(d.cards, card)
+
+	-- Collection pleine : on jette la carte la plus faible, jamais la nouvelle.
+	if #d.cards > MAX_CARDS then
+		local worstIdx, worstMult = 1, math.huge
+		for i, c in d.cards do
+			local m = Config.rarity(c.rarity).mult
+			if m < worstMult then
+				worstIdx, worstMult = i, m
+			end
+		end
+		table.remove(d.cards, worstIdx)
+	end
+
+	repopulate(session)
+	updateLeaderstats(session, player)
+	pushStats(player)
+	pushCollection(player)
+	rDiceResult:FireClient(player, { card = card, cost = cost })
 end)
 
 -------------------------------------------------------------------------------
@@ -364,13 +454,16 @@ rRebirth.OnServerEvent:Connect(function(player)
 	d.power = 0
 	d.dumbbell = 1
 	d.ball = 1
-	d.countLevel = 0
 	d.valueLevel = 0
+	d.slots = Config.StartingSlots
+	-- d.cards est conservé : la collection est la progression longue du jeu.
 	repopulate(session)
 	updateLeaderstats(session, player)
 	pushStats(player)
+	pushCollection(player)
 	rToast:FireClient(player, "🔄 Renaissance ! Multiplicateur permanent x"
-		.. Config.rebirthMultiplier(d.rebirths, session.passes.RebirthX2 == true))
+		.. Config.rebirthMultiplier(d.rebirths, session.passes.RebirthX2 == true)
+		.. " — ta collection de joueurs est gardée.")
 end)
 
 -------------------------------------------------------------------------------
@@ -428,6 +521,7 @@ local function onPlayerAdded(player: Player)
 		passes = {},
 		lastTrain = 0,
 		lastShot = 0,
+		lastRoll = 0,
 	}
 	sessions[player] = session
 
@@ -452,6 +546,7 @@ local function onPlayerAdded(player: Player)
 	end)
 
 	pushStats(player)
+	pushCollection(player)
 end
 
 local function onPlayerRemoving(player: Player)

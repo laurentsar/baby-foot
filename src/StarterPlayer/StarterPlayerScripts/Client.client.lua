@@ -18,8 +18,11 @@ local rShoot = Remotes.get("Shoot")
 local rBuy = Remotes.get("BuyUpgrade")
 local rRebirth = Remotes.get("Rebirth")
 local rBuyPass = Remotes.get("BuyPass")
+local rRoll = Remotes.get("RollDice")
 local rStats = Remotes.get("StatsUpdate")
 local rShotResult = Remotes.get("ShotResult")
+local rDiceResult = Remotes.get("DiceResult")
+local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
@@ -307,8 +310,8 @@ end
 shopHeader("💪 ENTRAÎNEMENT & BALLE", 1, ACCENT)
 upgradeButton("dumbbell", 2)
 upgradeButton("ball", 3)
-shopHeader("⚽ FIGURINES", 4, GOLD)
-upgradeButton("count", 5)
+shopHeader("⚽ ÉQUIPE", 4, GOLD)
+upgradeButton("slot", 5)
 upgradeButton("value", 6)
 shopHeader("🔄 RENAISSANCE", 7, Color3.fromRGB(255, 120, 200))
 local rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
@@ -331,6 +334,95 @@ for key, pass in Config.Passes do
 	}, shopScroll)
 	passOrder += 1
 end
+
+-------------------------------------------------------------------------------
+-- DÉS + COLLECTION (colonne de gauche, sous les stats).
+-- Les joueurs de foot s'obtiennent en lançant les dés ; les meilleurs sont
+-- automatiquement placés sur les bases, dans la limite des emplacements.
+-------------------------------------------------------------------------------
+local diceBtn = button("🎲 RECRUTER", Color3.fromRGB(235, 170, 60), gui)
+diceBtn.Size = UDim2.fromOffset(200, 62)
+diceBtn.Position = UDim2.fromOffset(16, 156)
+diceBtn.TextSize = 20
+diceBtn.MouseButton1Click:Connect(function() rRoll:FireServer() end)
+
+local squadLabel = make("TextLabel", {
+	Size = UDim2.fromOffset(230, 22), Position = UDim2.fromOffset(16, 226),
+	BackgroundTransparency = 1, Text = "👥 Équipe 0/11",
+	Font = Enum.Font.GothamBold, TextScaled = true,
+	TextColor3 = Color3.fromRGB(220, 224, 240),
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, gui)
+
+local collecToggle = button("👥 COLLECTION", Color3.fromRGB(150, 110, 235), gui)
+collecToggle.Size = UDim2.fromOffset(200, 40)
+collecToggle.Position = UDim2.fromOffset(16, 254)
+collecToggle.TextSize = 16
+
+local collecPanel = make("Frame", {
+	Size = UDim2.fromOffset(320, 420), Position = UDim2.fromOffset(16, 302),
+	BackgroundColor3 = BG, BackgroundTransparency = 0.05,
+	BorderSizePixel = 0, Visible = false,
+}, gui)
+corner(collecPanel, 14)
+make("UIStroke", { Color = Color3.fromRGB(150, 110, 235), Thickness = 1.5, Transparency = 0.4 }, collecPanel)
+
+local collecScroll = make("ScrollingFrame", {
+	Size = UDim2.new(1, -16, 1, -16), Position = UDim2.fromOffset(8, 8),
+	BackgroundTransparency = 1, BorderSizePixel = 0,
+	CanvasSize = UDim2.new(0, 0, 0, 0), ScrollBarThickness = 6,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, collecPanel)
+make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, collecScroll)
+
+collecToggle.MouseButton1Click:Connect(function()
+	collecPanel.Visible = not collecPanel.Visible
+end)
+
+local function collecLine(text: string, color: Color3, order: number, height: number)
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1,
+		Text = text, Font = Enum.Font.GothamBold, TextScaled = true,
+		TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+	}, collecScroll)
+end
+
+rCollection.OnClientEvent:Connect(function(c)
+	collecScroll:ClearAllChildren()
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, collecScroll)
+
+	local order = 1
+	collecLine(string.format("SUR LE TERRAIN (%d/%d)", #c.squad, c.maxSlots), GOLD, order, 24)
+	order += 1
+	for i, card in c.squad do
+		local r = Config.rarity(card.rarity)
+		collecLine(string.format("%d. %s — %s ×%s", i, card.name, r.name, Config.abbreviate(r.mult)),
+			r.color, order, 20)
+		order += 1
+	end
+	if #c.squad == 0 then
+		collecLine("Aucun joueur — lance les dés !", Color3.fromRGB(180, 180, 200), order, 20)
+		order += 1
+	end
+
+	-- Reste de la collection, résumé par rareté : au-delà de 11 joueurs, seul le
+	-- compte importe (le terrain ne prend que les meilleurs).
+	local counts: { [string]: number } = {}
+	for _, card in c.cards do
+		counts[card.rarity] = (counts[card.rarity] or 0) + 1
+	end
+	collecLine(string.format("COLLECTION (%d)", #c.cards), ACCENT, order, 24)
+	order += 1
+	for _, r in Config.Rarities do
+		collecLine(string.format("%s : %d", r.name, counts[r.key] or 0), r.color, order, 20)
+		order += 1
+	end
+	if c.unlockedSlots < c.maxSlots then
+		collecLine(string.format("Emplacements débloqués : %d/%d (boutique)",
+			c.unlockedSlots, c.maxSlots), Color3.fromRGB(200, 200, 215), order, 20)
+	end
+end)
 
 -------------------------------------------------------------------------------
 -- Toasts + feedback de tir.
@@ -356,8 +448,16 @@ end
 
 rToast.OnClientEvent:Connect(function(msg) toast(msg) end)
 
+-- Résultat des dés : la carte tirée, colorée par sa rareté.
+rDiceResult.OnClientEvent:Connect(function(res)
+	local r = Config.rarity(res.card.rarity)
+	toast(string.format("🎲 %s — %s (×%s)", res.card.name, r.name, Config.abbreviate(r.mult)),
+		r.color)
+end)
+
 rShotResult.OnClientEvent:Connect(function(res)
 	local tier = res.tier and ("  •  " .. res.tier) or ""
+	if res.best then tier ..= "  •  " .. res.best end
 	if res.scored then
 		toast(string.format("🎯 BUT ! %d touchés  •  +%s $ (x%d)%s",
 			res.hits, Config.abbreviate(res.money), Config.Shot.scoreMultiplier, tier),
@@ -398,12 +498,22 @@ rStats.OnClientEvent:Connect(function(s)
 		bb.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
 	end
 
-	local capTxt = s.playerCountCap == -1 and "∞" or tostring(s.playerCountCap)
-	upgradeButtons.count.Text = string.format("+1 Figurine (%d, max %s)\n%s $",
-		s.playerCount, capTxt, Config.abbreviate(s.playerCountCost))
-	upgradeButtons.count.BackgroundColor3 = s.money >= s.playerCountCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(200, 150, 60)
+	local slotBtn = upgradeButtons.slot
+	if s.slots >= s.maxSlots then
+		slotBtn.Text = string.format("Emplacements MAX (%d/%d)", s.slots, s.maxSlots)
+		slotBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+	else
+		slotBtn.Text = string.format("+1 Emplacement (%d/%d)\n%s $",
+			s.slots, s.maxSlots, Config.abbreviate(s.slotCost))
+		slotBtn.BackgroundColor3 = s.money >= s.slotCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(200, 150, 60)
+	end
 
-	upgradeButtons.value.Text = string.format("Valeur figurine (+, act. %s $)\n%s $",
+	diceBtn.Text = string.format("🎲 RECRUTER\n%s $", Config.abbreviate(s.diceCost))
+	diceBtn.BackgroundColor3 = s.money >= s.diceCost and Color3.fromRGB(235, 170, 60) or Color3.fromRGB(120, 95, 55)
+	squadLabel.Text = string.format("👥 Équipe %d/%d  •  Collection : %d",
+		s.squadSize, s.maxSlots, s.cardsOwned)
+
+	upgradeButtons.value.Text = string.format("Valeur joueur (+, act. %s $)\n%s $",
 		Config.abbreviate(s.playerValue), Config.abbreviate(s.playerValueCost))
 	upgradeButtons.value.BackgroundColor3 = s.money >= s.playerValueCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(200, 150, 60)
 
@@ -412,7 +522,7 @@ rStats.OnClientEvent:Connect(function(s)
 	rebirthBtn.BackgroundColor3 = s.money >= s.rebirthCost and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 80, 110)
 end)
 
-toast("⚽ Entraîne-toi aux haltères, tourne-toi vers le terrain (la visée suit ta caméra), "
-	.. "relâche la jauge dans le vert foncé et marque au fond pour le x3 !",
+toast("⚽ Lance les 🎲 pour recruter tes joueurs, place-les sur les 4 bases (11 max), "
+	.. "puis vise à la caméra et relâche la jauge dans le vert foncé !",
 	Color3.fromRGB(50, 80, 120))
 print("[BabyFoot] Client prêt.")

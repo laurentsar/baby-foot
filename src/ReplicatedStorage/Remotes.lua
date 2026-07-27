@@ -7,11 +7,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local EVENT_NAMES = {
 	"Train",        -- client -> serveur : une rep d'entraînement
 	"Shoot",        -- client -> serveur : tir (angle, chargePct)
-	"BuyUpgrade",   -- client -> serveur : {kind = "dumbbell"|"ball"|"count"|"value"}
+	"BuyUpgrade",   -- client -> serveur : {kind = "dumbbell"|"ball"|"slot"|"value"}
 	"Rebirth",      -- client -> serveur : demande de renaissance
 	"BuyPass",      -- client -> serveur : ouvre la boutique Robux d'un pass
+	"RollDice",     -- client -> serveur : lance les dés pour recruter un joueur
 	"StatsUpdate",  -- serveur -> client : table d'état complète
-	"ShotResult",   -- serveur -> client : {hits, money, scored}
+	"ShotResult",   -- serveur -> client : {hits, money, scored, tier}
+	"DiceResult",   -- serveur -> client : {card = {name, rarity}, cost}
+	"Collection",   -- serveur -> client : {cards, squad, unlockedSlots}
 	"Toast",        -- serveur -> client : message d'info
 }
 
