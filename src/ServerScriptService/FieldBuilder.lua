@@ -59,10 +59,25 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		CFrame.new(origin.X, origin.Y + (F.wallHeight + 4) / 2, goalZ), NEON, root, Enum.Material.Neon)
 	goal.Transparency = 0.35
 
-	-- Mur derrière ton point de tir
+	-- Mur derrière ton point de tir, PERCÉ au milieu : c'est par ce trou qu'on
+	-- entre depuis l'allée. Deux panneaux de part et d'autre de l'ouverture.
 	local shootZ = origin.Z + F.shootLine
-	part("MurArriere", Vector3.new(width, F.wallHeight, 2),
-		CFrame.new(origin.X, origin.Y + F.wallHeight / 2, shootZ - 4), WOOD, root)
+	local gap = Config.Entrance.pathWidth + 4
+	local panel = (width - gap) / 2
+	for _, side in { -1, 1 } do
+		part("MurArriere", Vector3.new(panel, F.wallHeight, 2),
+			CFrame.new(origin.X + side * (gap + panel) / 2, origin.Y + F.wallHeight / 2, shootZ - 4),
+			WOOD, root)
+	end
+	-- Encadrement du passage, pour qu'on voie l'entrée de loin.
+	for _, side in { -1, 1 } do
+		part("MontantEntree", Vector3.new(2, F.wallHeight + 6, 2.5),
+			CFrame.new(origin.X + side * gap / 2, origin.Y + (F.wallHeight + 6) / 2, shootZ - 4),
+			Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
+	end
+	part("LinteauEntree", Vector3.new(gap + 4, 2, 2.5),
+		CFrame.new(origin.X, origin.Y + F.wallHeight + 5, shootZ - 4),
+		Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
 
 	-- Point de tir (marqueur au sol)
 	local shootPad = part("PointDeTir", Vector3.new(10, 1.2, 10),
@@ -121,8 +136,13 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		CFrame.new(origin.X + width / 2 + 2, origin.Y + fh / 2, origin.Z + F.goalDepth / 2))
 	invisibleWall("MurInvFond", Vector3.new(width + 8, fh, 1),
 		CFrame.new(origin.X, origin.Y + fh / 2, origin.Z + halfLen + 8))
-	invisibleWall("MurInvArriere", Vector3.new(width + 8, fh, 1),
-		CFrame.new(origin.X, origin.Y + fh / 2, shootZ - 10))
+	-- Arrière : deux panneaux, l'ouverture de l'allée reste franchissable. Le
+	-- terrain lui-même reste protégé par la barrière avant, plus loin.
+	local invPanel = (width + 8 - gap) / 2
+	for _, side in { -1, 1 } do
+		invisibleWall("MurInvArriere", Vector3.new(invPanel, fh, 1),
+			CFrame.new(origin.X + side * (gap + invPanel) / 2, origin.Y + fh / 2, shootZ - 10))
+	end
 
 	-- Dossier des figurines (peuplé dynamiquement par le moteur de tir)
 	local figures = Instance.new("Folder")
@@ -258,20 +278,43 @@ end
 -- (attaque → gardien), centrés sur la largeur. Retourne une liste de
 -- { base, position: Vector3 } de Config.totalSlots() entrées.
 function FieldBuilder.slotLayout(field)
-	local slots = {}
 	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 14
 	local endZ = field.goalZ - Config.Field.goalDepth - 8
 	local spanZ = endZ - startZ
 
-	for _, base in Config.Bases do
+	-- Positions, base par base.
+	local perBase = {}
+	for b, base in Config.Bases do
+		perBase[b] = {}
 		local z = startZ + spanZ * base.depth
 		for c = 0, base.slots - 1 do
 			local x = field.origin.X + ((c + 0.5) / base.slots - 0.5) * (field.width - 14)
-			table.insert(slots, {
+			table.insert(perBase[b], {
 				base = base.name,
 				position = Vector3.new(x, field.origin.Y + 3.5, z),
 			})
 		end
+	end
+
+	-- Ordre de déblocage EN ROND, du gardien vers l'attaque : les 4 premiers
+	-- emplacements donnent donc un gardien, un défenseur, un milieu et un
+	-- attaquant. Remplir base par base laissait le but désert au départ.
+	local slots = {}
+	local order = { 4, 3, 2, 1 }  -- Gardien, Défense, Milieu, Attaque
+	local cursor = { 0, 0, 0, 0 }
+	local total = Config.totalSlots()
+	while #slots < total do
+		local placedOne = false
+		for _, b in order do
+			local list = perBase[b]
+			if list and cursor[b] < #list then
+				cursor[b] += 1
+				table.insert(slots, list[cursor[b]])
+				placedOne = true
+				if #slots >= total then break end
+			end
+		end
+		if not placedOne then break end
 	end
 	return slots
 end
@@ -341,19 +384,68 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			pad.Parent = field.figuresFolder
 		else
 			local rarity = Config.rarity(card.rarity)
+			local J = Config.Jersey
+
+			-- Corps = le maillot. La rareté n'est plus portée par la couleur du
+			-- corps (tous les joueurs ont le même maillot) : elle passe sur le
+			-- socle lumineux et le liseré, sinon on ne distinguerait plus rien.
 			local fig = Instance.new("Part")
 			fig.Name = "Figure"
 			fig.Size = Vector3.new(3, 6, 3)
 			fig.Anchored = true
 			fig.CanCollide = false
-			fig.Color = rarity.color
-			fig.Material = if card.rarity == "commun" then Enum.Material.SmoothPlastic else Enum.Material.Neon
+			fig.Color = J.body
+			fig.Material = Enum.Material.SmoothPlastic
 			fig.CFrame = CFrame.new(slot.position)
 			-- Lu par le moteur de tir : l'argent d'un joueur touché dépend de sa rareté.
 			fig:SetAttribute("Mult", rarity.mult)
 			fig:SetAttribute("Rarete", rarity.name)
 			fig:SetAttribute("Joueur", card.name)
 			fig.Parent = field.figuresFolder
+
+			-- Bande rouge verticale + liseré, les couleurs de Paris.
+			local stripe = Instance.new("Part")
+			stripe.Name = "Bande"
+			stripe.Size = Vector3.new(0.9, 6.05, 3.05)
+			stripe.Anchored = true
+			stripe.CanCollide = false
+			stripe.Color = J.stripe
+			stripe.Material = Enum.Material.SmoothPlastic
+			stripe.CFrame = fig.CFrame
+			stripe.Parent = fig
+
+			local trim = Instance.new("Part")
+			trim.Name = "Liseré"
+			trim.Size = Vector3.new(3.1, 0.5, 3.1)
+			trim.Anchored = true
+			trim.CanCollide = false
+			trim.Color = J.trim
+			trim.Material = Enum.Material.SmoothPlastic
+			trim.CFrame = fig.CFrame + Vector3.new(0, 2.6, 0)
+			trim.Parent = fig
+
+			local shorts = Instance.new("Part")
+			shorts.Name = "Short"
+			shorts.Size = Vector3.new(3.05, 1.8, 3.05)
+			shorts.Anchored = true
+			shorts.CanCollide = false
+			shorts.Color = J.shorts
+			shorts.Material = Enum.Material.SmoothPlastic
+			shorts.CFrame = fig.CFrame - Vector3.new(0, 2.1, 0)
+			shorts.Parent = fig
+
+			-- Socle lumineux : c'est lui qui porte la rareté.
+			local socle = Instance.new("Part")
+			socle.Name = "Socle"
+			socle.Shape = Enum.PartType.Cylinder
+			socle.Size = Vector3.new(0.6, 4.4, 4.4)
+			socle.Anchored = true
+			socle.CanCollide = false
+			socle.Color = rarity.color
+			socle.Material = Enum.Material.Neon
+			socle.CFrame = CFrame.new(slot.position - Vector3.new(0, 3.1, 0))
+				* CFrame.Angles(0, 0, math.rad(90))
+			socle.Parent = fig
 
 			local head = Instance.new("Part")
 			head.Name = "Tete"
@@ -604,10 +696,22 @@ function FieldBuilder.buildLeaderboardBoard(field): SurfaceGui
 	title.TextColor3 = Color3.fromRGB(20, 20, 20)
 	title.Parent = gui
 
+	-- Bandeau du bas : compte à rebours du prochain coup de sifflet (bonus argent).
+	local timer = Instance.new("TextLabel")
+	timer.Name = "Timer"
+	timer.Position = UDim2.fromScale(0, 0.86)
+	timer.Size = UDim2.fromScale(1, 0.14)
+	timer.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+	timer.Text = "⏱ …"
+	timer.Font = Enum.Font.GothamBlack
+	timer.TextScaled = true
+	timer.TextColor3 = Color3.fromRGB(255, 210, 60)
+	timer.Parent = gui
+
 	local list = Instance.new("TextLabel")
 	list.Name = "List"
 	list.Position = UDim2.fromScale(0, 0.16)
-	list.Size = UDim2.fromScale(1, 0.84)
+	list.Size = UDim2.fromScale(1, 0.70)
 	list.BackgroundTransparency = 1
 	list.Text = "Chargement…"
 	list.Font = Enum.Font.GothamBold

@@ -129,11 +129,14 @@ end
 -------------------------------------------------------------------------------
 -- VALEUR DES JOUEURS (multipliée ensuite par la rareté de la carte touchée).
 -------------------------------------------------------------------------------
+-- Gains revus à la hausse : avec 11 cibles au maximum (contre des dizaines de
+-- figurines avant), la valeur de base devait monter d'autant, sinon un tir
+-- réussi rapportait des clopinettes.
 Config.PlayerValue = {
-	base = 10,
+	base = 60,
 	growth = 1.5,          -- valeur *= 1.5 par niveau
 	baseCost = 600,
-	costGrowth = 1.55,
+	costGrowth = 1.5,
 }
 
 -------------------------------------------------------------------------------
@@ -188,7 +191,7 @@ Config.Shot = {
 	-- (agrandi), pour que marquer demande une vraie puissance.
 	decel = 95,            -- décélération (studs/s²)
 	hitRadius = 6,         -- rayon de collision balle<->joueur
-	scoreMultiplier = 3,   -- x3 argent si la balle atteint le fond du baby-foot
+	scoreMultiplier = 4,   -- x4 argent si la balle atteint le fond du baby-foot
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
 	bigFieldScoreFactor = 0.55, -- pass Grand Terrain : but atteint plus tôt
@@ -250,6 +253,31 @@ Config.Entrance = {
 	gateOffset = 66,     -- position du portique, entre le parvis et le stade
 	pathWidth = 22,
 	trees = 7,           -- arbres de chaque côté de l'allée
+}
+
+-------------------------------------------------------------------------------
+-- MAILLOT DE L'ÉQUIPE — couleurs de Paris (bleu nuit, bande rouge, liseré blanc).
+-- Uniquement des couleurs : ni nom de club, ni écusson, ni sponsor. Un logo ou
+-- un nom d'équipe réelle est une marque déposée, et Roblox retire les jeux qui
+-- les utilisent.
+-------------------------------------------------------------------------------
+Config.Jersey = {
+	body = Color3.fromRGB(16, 26, 72),
+	stripe = Color3.fromRGB(214, 38, 48),
+	trim = Color3.fromRGB(240, 240, 245),
+	shorts = Color3.fromRGB(12, 18, 52),
+}
+
+-------------------------------------------------------------------------------
+-- MATCH : cycle affiché sur le grand écran.
+-- Toutes les `cycle` secondes, coup de sifflet : tous les gains sont multipliés
+-- pendant `boostTime` secondes. Le compte à rebours vit côté serveur (le client
+-- ne fait que l'afficher via le panneau).
+-------------------------------------------------------------------------------
+Config.Match = {
+	cycle = 30,
+	boostTime = 10,
+	boostMult = 2,
 }
 
 -------------------------------------------------------------------------------

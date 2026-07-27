@@ -2,7 +2,7 @@
 
 Jeu Roblox (Rojo) — simulateur baby-foot : entraîne-toi aux haltères pour gagner
 de la puissance, recrute tes joueurs aux dés, vise à la caméra et touche-les pour
-gagner de l'argent, marque au fond pour un **x3**, améliore ton matériel, fais
+gagner de l'argent, marque au fond pour un **x4**, améliore ton matériel, fais
 des **renaissances** et grimpe au **classement mondial**.
 
 ## Boucle de jeu
@@ -22,12 +22,15 @@ des **renaissances** et grimpe au **classement mondial**.
    Mythique ×60. Le tirage est fait par le serveur (le client n'envoie que
    « je lance »).
 4. **Composer l'équipe** 👥 — le terrain est un vrai baby-foot : **4 bases**
-   (Attaque 3, Milieu 5, Défense 2, Gardien 1) soit **11 joueurs au maximum**.
-   Les emplacements se débloquent en boutique (4 au départ → 11) et les
-   **meilleures cartes de la collection s'y placent automatiquement**.
+   (Attaque 3, Milieu 5, Défense 2, Gardien 1) soit **11 joueurs au maximum**,
+   en maillot de Paris. Les emplacements se débloquent en boutique (4 au
+   départ → 11), **en rond du gardien vers l'attaque** : dès la première partie
+   tu as un gardien, un défenseur, un milieu et un attaquant. Les meilleures
+   cartes de la collection s'y placent automatiquement.
+   La **rareté se lit sur le socle lumineux** sous chaque joueur.
 5. **Toucher / Marquer** — chaque joueur touché rapporte selon **sa rareté**
    (valeur du joueur × multiplicateur de la carte × balle × bonus).
-   Si la balle atteint le **fond du baby-foot (but adverse)** → **×3** sur le tir.
+   Si la balle atteint le **fond du baby-foot (but adverse)** → **×4** sur le tir.
    Un tir trop faible s'arrête avant le but → tu gagnes seulement les touches,
    **sans multiplicateur**.
 6. **Améliorer** 🛒 — meilleurs haltères, meilleure balle, emplacements
@@ -35,7 +38,10 @@ des **renaissances** et grimpe au **classement mondial**.
 7. **Renaissance** 🔄 — reset argent + upgrades + emplacements contre un
    multiplicateur permanent (1 = ×2, 2 = ×4, 3 = ×6, puis +2).
    **La collection de joueurs est conservée.**
-8. **Classement mondial** 🏆 — panneau géant in-game (argent total), OrderedDataStore.
+8. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
+   à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
+   Le cycle vit côté serveur, le panneau ne fait que l'afficher.
+9. **Classement mondial** 🏆 — panneau géant in-game (argent total), OrderedDataStore.
 
 ## Game Passes (Robux)
 

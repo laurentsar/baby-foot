@@ -68,11 +68,21 @@ local function refreshPasses(session: Session, player: Player)
 	end
 end
 
+-- Coup de sifflet : fenêtre de bonus commune à tout le serveur (affichée sur le
+-- grand écran). Gérée ici, jamais côté client.
+local boostUntil = 0
+local nextWhistle = os.clock() + Config.Match.cycle
+
+local function boostActive(): boolean
+	return os.clock() < boostUntil
+end
+
 local function moneyMultiplier(session: Session): number
 	local rb = Config.rebirthMultiplier(session.data.rebirths, session.passes.RebirthX2 == true)
 	local m = rb
 	if session.passes.VIP then m *= 2 end
 	if session.passes.MoneyX2 then m *= 2 end
+	if boostActive() then m *= Config.Match.boostMult end
 	return m
 end
 
@@ -604,6 +614,43 @@ task.spawn(function()
 	while true do
 		Leaderboard.refresh()
 		task.wait(30)
+	end
+end)
+
+-------------------------------------------------------------------------------
+-- COUP DE SIFFLET : cycle de 30 s affiché sur le grand écran, puis fenêtre de
+-- bonus où tous les gains sont multipliés (voir moneyMultiplier).
+-------------------------------------------------------------------------------
+task.spawn(function()
+	local timer = gui:FindFirstChild("Timer") :: TextLabel?
+	local M = Config.Match
+	while true do
+		local now = os.clock()
+
+		if now >= nextWhistle then
+			boostUntil = now + M.boostTime
+			-- Le cycle suivant repart APRÈS le bonus, sinon deux fenêtres se
+			-- chevaucheraient et le bonus ne s'arrêterait jamais.
+			nextWhistle = now + M.boostTime + M.cycle
+			for player in sessions do
+				rToast:FireClient(player, string.format(
+					"📣 COUP DE SIFFLET — argent ×%d pendant %d s !", M.boostMult, M.boostTime))
+			end
+		end
+
+		if timer then
+			if boostActive() then
+				timer.Text = string.format("🔥 ARGENT ×%d — encore %d s",
+					M.boostMult, math.ceil(boostUntil - now))
+				timer.TextColor3 = Color3.fromRGB(120, 255, 140)
+			else
+				timer.Text = string.format("⏱ Prochain bonus ×%d dans %d s",
+					M.boostMult, math.max(0, math.ceil(nextWhistle - now)))
+				timer.TextColor3 = Color3.fromRGB(255, 210, 60)
+			end
+		end
+
+		task.wait(0.25)
 	end
 end)
 
