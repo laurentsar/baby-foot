@@ -43,6 +43,7 @@ type Session = {
 	lastTrain: number,
 	lastShot: number,
 	lastRoll: number,
+	spawnPos: Vector3?,
 }
 
 local sessions: { [Player]: Session } = {}
@@ -303,12 +304,13 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 		if pos.Z >= field.goalZ + 20 then break end
 	end
 
-	-- Effet de but.
+	-- Effet de but : le fond s'allume et le public bondit en ola.
 	if scored then
 		field.goalPart.Color = Color3.fromRGB(120, 255, 140)
 		task.delay(0.4, function()
 			field.goalPart.Color = Color3.fromRGB(80, 220, 255)
 		end)
+		FieldBuilder.cheer(field)
 	end
 
 	task.delay(0.15, function() ball:Destroy() end)
@@ -534,6 +536,7 @@ local function onPlayerAdded(player: Player)
 		lastTrain = 0,
 		lastShot = 0,
 		lastRoll = 0,
+		spawnPos = nil,
 	}
 	sessions[player] = session
 
@@ -541,17 +544,19 @@ local function onPlayerAdded(player: Player)
 
 	local fieldMult = session.passes.BigField and Config.BigFieldMultiplier or 1
 	session.field = FieldBuilder.build(fieldMult, origin)
-	local training = FieldBuilder.buildTrainingArea(origin)
-	local _ = training
+	FieldBuilder.buildTrainingArea(origin)
+	local entrance = FieldBuilder.buildEntrance(origin, slot == 0)
+	session.spawnPos = entrance.spawnPos
 
 	repopulate(session)
 	updateLeaderstats(session, player)
 
 	player.CharacterAdded:Connect(function(char)
 		local hrp = char:WaitForChild("HumanoidRootPart") :: BasePart
-		-- Téléporte le joueur à sa zone d'entraînement.
+		-- Apparition sur le parvis de SON plot : les SpawnLocation sont désactivés,
+		-- sinon Roblox en choisirait un au hasard et on arriverait chez le voisin.
 		task.wait(0.2)
-		hrp.CFrame = CFrame.new(origin + Vector3.new(-Config.Field.width, 5, Config.Field.shootLine + 14))
+		hrp.CFrame = CFrame.new(session.spawnPos)
 		if session.passes.VIP then
 			task.delay(0.5, function() nameTagBadge(player) end)
 		end

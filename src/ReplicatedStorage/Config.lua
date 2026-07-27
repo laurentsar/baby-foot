@@ -240,6 +240,33 @@ Config.Field = {
 Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain
 
 -------------------------------------------------------------------------------
+-- PARVIS D'ARRIVÉE + ENTRÉE DU STADE
+-- On apparaît sur le parvis, puis on remonte l'allée bordée d'arbres et on passe
+-- sous le portique pour arriver au terrain.
+-------------------------------------------------------------------------------
+Config.Entrance = {
+	plazaOffset = 150,   -- distance du parvis derrière le point de tir (studs)
+	plazaSize = 60,
+	gateOffset = 66,     -- position du portique, entre le parvis et le stade
+	pathWidth = 22,
+	trees = 7,           -- arbres de chaque côté de l'allée
+}
+
+-------------------------------------------------------------------------------
+-- PUBLIC
+-- soundId : cri de foule joué sur but. Laisse "" si tu n'as pas d'audio : depuis
+-- la mise à jour "audio privacy" de Roblox, un son uploadé par quelqu'un d'autre
+-- n'est PAS lisible dans ton jeu. Mets ici l'ID d'un son que tu as toi-même
+-- téléversé (Creator Hub → Audio), sinon les supporters sautent en silence.
+-------------------------------------------------------------------------------
+Config.Crowd = {
+	soundId = "",        -- ex. "rbxassetid://123456789"
+	volume = 0.6,
+	jumpHeight = 3,      -- hauteur du bond des supporters
+	jumpTime = 0.28,
+}
+
+-------------------------------------------------------------------------------
 -- Helpers de coût / valeur.
 -------------------------------------------------------------------------------
 function Config.playerValueCost(level: number): number

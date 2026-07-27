@@ -140,6 +140,7 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		shootPos = Vector3.new(origin.X, origin.Y + 2, shootZ),
 		shootPad = shootPad,
 		barrierZ = barrierZ,
+		crowd = {},
 	}
 
 	FieldBuilder.buildBases(field)
@@ -173,15 +174,23 @@ function FieldBuilder.buildDecor(field)
 			local seats = 14
 			for i = 0, seats - 1 do
 				local z = origin.Z - (length + 12) / 2 + (i + 0.5) * (length + 12) / seats
-				local body = part("Spectateur", Vector3.new(2, 3, 2),
+				-- Corps + tête sont soudés dans un Model : le public saute d'un
+				-- bloc quand on marque (voir FieldBuilder.cheer).
+				local fan = Instance.new("Model")
+				fan.Name = "Spectateur"
+				fan.Parent = folder
+
+				local body = part("Corps", Vector3.new(2, 3, 2),
 					CFrame.new(x, origin.Y + h + 1.5, z),
-					CROWD[(i + tier * 2) % #CROWD + 1], folder)
+					CROWD[(i + tier * 2) % #CROWD + 1], fan)
 				body.CanCollide = false
-				local head = part("TeteSpectateur", Vector3.new(1.6, 1.6, 1.6),
+				local head = part("Tete", Vector3.new(1.6, 1.6, 1.6),
 					CFrame.new(x, origin.Y + h + 3.8, z),
-					Color3.fromRGB(235, 200, 165), folder)
+					Color3.fromRGB(235, 200, 165), fan)
 				head.Shape = Enum.PartType.Ball
 				head.CanCollide = false
+				fan.PrimaryPart = body
+				table.insert(field.crowd, fan)
 			end
 		end
 	end
@@ -291,7 +300,7 @@ function FieldBuilder.buildBases(field)
 		-- Étiquette de la base (Attaque / Milieu / Défense / Gardien).
 		local sign = Instance.new("BillboardGui")
 		sign.Name = "Etiquette"
-		sign.Size = UDim2.fromOffset(190, 34)
+		sign.Size = UDim2.fromOffset(130, 24)
 		sign.StudsOffset = Vector3.new(0, 3, 0)
 		sign.AlwaysOnTop = false
 		sign.Parent = bar
@@ -300,7 +309,7 @@ function FieldBuilder.buildBases(field)
 		lbl.BackgroundTransparency = 1
 		lbl.Text = string.format("%s (%d)", base.name, base.slots)
 		lbl.Font = Enum.Font.GothamBold
-		lbl.TextScaled = true
+		lbl.TextSize = 14
 		lbl.TextColor3 = Color3.fromRGB(220, 225, 240)
 		lbl.TextStrokeTransparency = 0.4
 		lbl.Parent = sign
@@ -356,22 +365,180 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			head.CFrame = fig.CFrame + Vector3.new(0, 3.8, 0)
 			head.Parent = fig
 
+			-- Étiquette discrète : taille fixe (pas de TextScaled, qui gonflait le
+			-- texte à la hauteur du cadre) et masquée au-delà de 120 studs.
 			local tag = Instance.new("BillboardGui")
 			tag.Name = "Nom"
-			tag.Size = UDim2.fromOffset(180, 40)
-			tag.StudsOffset = Vector3.new(0, 4.6, 0)
+			tag.Size = UDim2.fromOffset(110, 26)
+			tag.StudsOffset = Vector3.new(0, 4.2, 0)
+			tag.MaxDistance = 120
 			tag.Parent = fig
 			local lbl = Instance.new("TextLabel")
 			lbl.Size = UDim2.fromScale(1, 1)
 			lbl.BackgroundTransparency = 1
 			lbl.Text = string.format("%s\n%s ×%s", card.name, rarity.name, Config.abbreviate(rarity.mult))
 			lbl.Font = Enum.Font.GothamBold
-			lbl.TextScaled = true
+			lbl.TextSize = 11
 			lbl.TextColor3 = rarity.color
 			lbl.TextStrokeTransparency = 0.3
 			lbl.Parent = tag
 		end
 	end
+end
+
+-- PARVIS + ALLÉE + PORTIQUE : ce qu'on traverse en arrivant dans le jeu.
+-- Retourne la position d'apparition (le joueur y est téléporté à chaque spawn :
+-- avec un plot par joueur, on ne peut pas laisser Roblox choisir un
+-- SpawnLocation au hasard entre les plots).
+function FieldBuilder.buildEntrance(originOverride: Vector3?, enableSpawn: boolean?)
+	local o = originOverride or Config.Field.origin
+	local E = Config.Entrance
+	local F = Config.Field
+	local model = Instance.new("Model")
+	model.Name = "Entree"
+	model.Parent = workspace
+
+	local shootZ = o.Z + F.shootLine
+	local plazaZ = shootZ - E.plazaOffset
+	local gateZ = shootZ - E.gateOffset
+
+	-- Parvis d'apparition.
+	part("Parvis", Vector3.new(E.plazaSize, 1, E.plazaSize),
+		CFrame.new(o.X, o.Y, plazaZ), Color3.fromRGB(105, 108, 120), model, Enum.Material.Slate)
+
+	local spawnPad = Instance.new("SpawnLocation")
+	spawnPad.Name = "Spawn"
+	spawnPad.Anchored = true
+	spawnPad.Size = Vector3.new(14, 1, 14)
+	spawnPad.CFrame = CFrame.new(o.X, o.Y + 1, plazaZ)
+	spawnPad.Color = Color3.fromRGB(255, 210, 60)
+	spawnPad.Material = Enum.Material.Neon
+	-- Un seul parvis (celui du premier plot) garde un SpawnLocation actif : c'est
+	-- le point d'apparition par défaut de Roblox. Les autres sont désactivés,
+	-- sinon on apparaîtrait au hasard chez un voisin. Le serveur téléporte
+	-- ensuite chacun sur SON parvis.
+	spawnPad.Enabled = enableSpawn == true
+	spawnPad.Neutral = true
+	spawnPad.Parent = model
+
+	-- Allée du parvis jusqu'au stade.
+	local pathLen = E.plazaOffset - 6
+	part("Allee", Vector3.new(E.pathWidth, 1, pathLen),
+		CFrame.new(o.X, o.Y + 0.05, plazaZ + pathLen / 2), Color3.fromRGB(150, 140, 120),
+		model, Enum.Material.Cobblestone)
+
+	-- Portique d'entrée, à mi-chemin : deux piliers et un fronton.
+	for _, side in { -1, 1 } do
+		part("Pilier", Vector3.new(5, 26, 5),
+			CFrame.new(o.X + side * (E.pathWidth / 2 + 4), o.Y + 13, gateZ),
+			Color3.fromRGB(60, 64, 80), model, Enum.Material.Concrete)
+	end
+	local fronton = part("Fronton", Vector3.new(E.pathWidth + 18, 7, 3),
+		CFrame.new(o.X, o.Y + 29, gateZ), Color3.fromRGB(30, 33, 44), model, Enum.Material.Metal)
+
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		local sign = Instance.new("SurfaceGui")
+		sign.Face = face
+		sign.CanvasSize = Vector2.new(900, 220)
+		sign.Parent = fronton
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundTransparency = 1
+		lbl.Text = "⚽ BABY-FOOT POWER"
+		lbl.Font = Enum.Font.GothamBlack
+		lbl.TextScaled = true
+		lbl.TextColor3 = Color3.fromRGB(255, 210, 60)
+		lbl.Parent = sign
+	end
+
+	-- Paysage : arbres le long de l'allée, pelouse autour du parvis.
+	part("Pelouse", Vector3.new(E.plazaSize + 90, 0.6, E.plazaOffset + 40),
+		CFrame.new(o.X, o.Y - 0.3, plazaZ + E.plazaOffset / 2 - 10),
+		Color3.fromRGB(60, 130, 60), model, Enum.Material.Grass)
+
+	local function tree(x: number, z: number, scale: number)
+		local trunk = part("Tronc", Vector3.new(2.4 * scale, 12 * scale, 2.4 * scale),
+			CFrame.new(x, o.Y + 6 * scale, z), Color3.fromRGB(95, 62, 35), model, Enum.Material.Wood)
+		trunk.CanCollide = false
+		for i = 0, 2 do
+			local foliage = part("Feuillage", Vector3.new(11 * scale - i * 2.2, 9 * scale - i * 1.8, 11 * scale - i * 2.2),
+				CFrame.new(x, o.Y + (11 + i * 3.4) * scale, z),
+				Color3.fromRGB(40 + i * 12, 110 + i * 18, 45), model, Enum.Material.Grass)
+			foliage.Shape = Enum.PartType.Ball
+			foliage.CanCollide = false
+		end
+	end
+
+	for i = 0, E.trees - 1 do
+		local z = plazaZ + 14 + i * (pathLen - 10) / math.max(1, E.trees - 1)
+		local scale = 0.85 + ((i % 3) * 0.15)
+		tree(o.X - E.pathWidth / 2 - 10, z, scale)
+		tree(o.X + E.pathWidth / 2 + 10, z, scale)
+	end
+
+	-- Quelques arbres dispersés derrière le parvis, pour fermer le décor.
+	for i = 0, 5 do
+		local side = if i % 2 == 0 then -1 else 1
+		tree(o.X + side * (18 + (i % 3) * 13), plazaZ - 16 - (i % 3) * 12, 1 + (i % 2) * 0.2)
+	end
+
+	return {
+		model = model,
+		spawnPos = Vector3.new(o.X, o.Y + 4, plazaZ),
+	}
+end
+
+-- Le public saute et crie : appelé quand le joueur marque.
+function FieldBuilder.cheer(field)
+	if not field.crowd then return end
+	local E = Config.Crowd
+
+	if E.soundId ~= "" then
+		local snd = Instance.new("Sound")
+		snd.SoundId = E.soundId
+		snd.Volume = E.volume
+		snd.RollOffMaxDistance = 300
+		snd.Parent = field.goalPart
+		snd:Play()
+		snd.Ended:Connect(function() snd:Destroy() end)
+		task.delay(8, function() if snd.Parent then snd:Destroy() end end)
+	end
+
+	-- Une seule boucle anime toute la tribune : un TweenService par supporter (ou
+	-- une coroutine chacun) coûterait beaucoup pour un bond d'une demi-seconde.
+	if field.cheering then return end
+	field.cheering = true
+
+	local bases = {}
+	for i, fan in field.crowd do
+		if fan.PrimaryPart then
+			bases[i] = fan:GetPivot()
+		end
+	end
+
+	local WAVE = 0.004  -- décalage par supporter : ça fait une ola, pas un bloc
+	task.spawn(function()
+		local start = os.clock()
+		local duration = E.jumpTime * 2 + WAVE * #field.crowd
+		while os.clock() - start < duration do
+			local t = os.clock() - start
+			for i, fan in field.crowd do
+				local base = bases[i]
+				if base then
+					local phase = (t - i * WAVE) / E.jumpTime
+					local h = if phase <= 0 or phase >= 2 then 0
+						elseif phase <= 1 then phase
+						else 2 - phase
+					fan:PivotTo(base + Vector3.new(0, E.jumpHeight * h, 0))
+				end
+			end
+			task.wait()
+		end
+		for i, fan in field.crowd do
+			if bases[i] then fan:PivotTo(bases[i]) end
+		end
+		field.cheering = false
+	end)
 end
 
 -- Zone d'entraînement (haltères) + spawn, à côté du terrain.
@@ -397,14 +564,12 @@ function FieldBuilder.buildTrainingArea(originOverride: Vector3?)
 		local _ = db
 	end
 
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "Spawn"
-	spawn.Anchored = true
-	spawn.Size = Vector3.new(10, 1, 10)
-	spawn.CFrame = CFrame.new(base.X, base.Y + 1, base.Z + 14)
-	spawn.Color = Color3.fromRGB(255, 210, 60)
-	spawn.Material = Enum.Material.Neon
-	spawn.Parent = model
+	-- Marqueur de la zone d'entraînement. Ce n'est plus un point d'apparition :
+	-- on arrive sur le parvis (voir buildEntrance), pas au milieu des haltères.
+	local pad = part("PlateformeGym", Vector3.new(10, 1, 10),
+		CFrame.new(base.X, base.Y + 1, base.Z + 14),
+		Color3.fromRGB(255, 210, 60), model, Enum.Material.Neon)
+	pad.CanCollide = false
 
 	return { model = model, trainPos = base }
 end

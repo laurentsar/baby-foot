@@ -88,5 +88,14 @@ rojo build -o BabyFootPower.rbxlx
 
 - Chaque joueur a **son propre terrain** (plot décalé dans le monde) — pas de
   conflit d'équipe entre joueurs.
+- **Arrivée** : on apparaît sur le parvis de son plot, puis on remonte l'allée
+  bordée d'arbres et on passe sous le portique du stade. Un seul `SpawnLocation`
+  est actif (celui du premier plot) : avec un plot par joueur, Roblox en
+  choisirait un au hasard et on arriverait chez le voisin — le serveur téléporte
+  ensuite chacun sur son propre parvis.
+- **Cri du public** : les supporters bondissent en ola à chaque but. Le son est
+  optionnel — renseigne `Config.Crowd.soundId` avec un audio **que tu as
+  toi-même téléversé** : depuis la mise à jour *audio privacy* de Roblox, un son
+  uploadé par un tiers n'est pas lisible dans ton jeu.
 - Tir **serveur-autoritaire** (simulation de la balle côté serveur, anti-triche).
 - La description du jeu à coller dans Roblox est dans `DESCRIPTION.md`.
