@@ -341,6 +341,37 @@ for key, pass in Config.Passes do
 end
 
 -------------------------------------------------------------------------------
+-- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.
+-- Dans SoundService et non dans le monde : une musique de fond ne doit pas
+-- s'atténuer quand on s'éloigne du terrain.
+-------------------------------------------------------------------------------
+local musicOn = true
+local music: Sound? = nil
+if Config.Music.soundId ~= "" then
+	music = Instance.new("Sound")
+	;(music :: Sound).Name = "MusiqueAmbiance"
+	;(music :: Sound).SoundId = Config.Music.soundId
+	;(music :: Sound).Looped = true
+	;(music :: Sound).Volume = Config.Music.volume
+	;(music :: Sound).Parent = game:GetService("SoundService")
+	;(music :: Sound):Play()
+end
+
+local musicBtn = button(if music then "🎵 MUSIQUE" else "🎵 à configurer",
+	if music then Color3.fromRGB(120, 200, 200) else Color3.fromRGB(95, 95, 115), gui)
+-- En haut au centre : la colonne de droite est prise par la boutique (qui
+-- s'ouvre à partir de y=70) et celle de gauche par les dés et la collection.
+musicBtn.Size = UDim2.fromOffset(150, 32)
+musicBtn.Position = UDim2.new(0.5, -75, 0, 16)
+musicBtn.TextSize = 14
+musicBtn.MouseButton1Click:Connect(function()
+	if not music then return end
+	musicOn = not musicOn
+	;(music :: Sound).Volume = if musicOn then Config.Music.volume else 0
+	musicBtn.Text = if musicOn then "🎵 MUSIQUE" else "🔇 COUPÉE"
+end)
+
+-------------------------------------------------------------------------------
 -- DÉS + COLLECTION (colonne de gauche, sous les stats).
 -- Les joueurs de foot s'obtiennent en lançant les dés ; les meilleurs sont
 -- automatiquement placés sur les bases, dans la limite des emplacements.

@@ -261,11 +261,9 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	ball.Position = field.shootPos
 	ball.Parent = field.root
 
-	-- Seuil de but (plus proche avec le pass Grand Terrain).
-	local scoreZ = field.goalZ
-	if session.passes.BigField then
-		scoreZ = field.origin.Z + (field.goalZ - field.origin.Z) * S.bigFieldScoreFactor
-	end
+	-- Le but est atteint au fond ET entre les poteaux. Le pass Grand Terrain
+	-- élargit le but (voir FieldBuilder.build), il ne rapproche plus le seuil.
+	local scoreZ = field.goalZ - Config.Field.goalDepth / 2
 
 	local pos = field.shootPos
 	local halfW = field.width / 2 - 2
@@ -312,13 +310,14 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 			end
 		end
 
-		-- But atteint ?
+		-- But atteint ? Il faut arriver au fond ET entre les poteaux.
 		if pos.Z >= scoreZ then
-			scored = true
+			if math.abs(pos.X - field.origin.X) <= field.goalHalfWidth then
+				scored = true
+			end
+			-- Dans les deux cas la balle est arrivée au fond : elle s'arrête.
 			break
 		end
-		-- Sortie par le fond
-		if pos.Z >= field.goalZ + 20 then break end
 	end
 
 	-- Effet de but : le fond s'allume et le public bondit en ola.
@@ -564,8 +563,7 @@ local function onPlayerAdded(player: Player)
 
 	refreshPasses(session, player)
 
-	local fieldMult = session.passes.BigField and Config.BigFieldMultiplier or 1
-	session.field = FieldBuilder.build(fieldMult, origin)
+	session.field = FieldBuilder.build(session.passes.BigField == true, origin)
 	local training = FieldBuilder.buildTrainingArea(origin)
 	local entrance = FieldBuilder.buildEntrance(origin)
 	session.spawnPos = entrance.spawnPos

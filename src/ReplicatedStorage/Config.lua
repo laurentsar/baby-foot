@@ -129,11 +129,11 @@ end
 -------------------------------------------------------------------------------
 -- VALEUR DES JOUEURS (multipliée ensuite par la rareté de la carte touchée).
 -------------------------------------------------------------------------------
--- Gains revus à la hausse : avec 11 cibles au maximum (contre des dizaines de
--- figurines avant), la valeur de base devait monter d'autant, sinon un tir
--- réussi rapportait des clopinettes.
+-- Avec 11 cibles au maximum (contre des dizaines de figurines avant), la valeur
+-- de base a dû monter d'autant. 51 = 60 moins 15 %, l'ajustement demandé après
+-- essai en jeu.
 Config.PlayerValue = {
-	base = 60,
+	base = 51,
 	growth = 1.5,          -- valeur *= 1.5 par niveau
 	baseCost = 600,
 	costGrowth = 1.5,
@@ -225,10 +225,11 @@ Config.Shot = {
 	-- (agrandi), pour que marquer demande une vraie puissance.
 	decel = 95,            -- décélération (studs/s²)
 	hitRadius = 6,         -- rayon de collision balle<->joueur
-	scoreMultiplier = 4,   -- x4 argent si la balle atteint le fond du baby-foot
+	-- Multiplie le TOTAL du tir : les joueurs touchés en chemin sont cumulés,
+	-- puis l'ensemble est multiplié si la balle finit au fond.
+	scoreMultiplier = 3,
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
-	bigFieldScoreFactor = 0.55, -- pass Grand Terrain : but atteint plus tôt
 	maxAngle = 55,         -- angle de tir max de part et d'autre de l'axe
 }
 
@@ -272,9 +273,13 @@ Config.Field = {
 	barrierHeight = 16,              -- assez haut pour qu'on ne saute pas par-dessus
 	fenceHeight = 45,                -- murs invisibles du pourtour (anti-saut)
 	holeRadius = 7,                  -- trou d'entrée de la balle, début du terrain
+	-- Le but ne fait plus toute la largeur : il faut viser. La balle qui arrive au
+	-- fond à côté des poteaux ne marque pas.
+	goalWidthRatio = 0.30,
 }
 
-Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain
+Config.BigGoalMultiplier = 2        -- pass Grand Terrain : but deux fois plus large
+
 
 -------------------------------------------------------------------------------
 -- PARVIS D'ARRIVÉE + ENTRÉE DU STADE
@@ -321,6 +326,16 @@ Config.Match = {
 -- n'est PAS lisible dans ton jeu. Mets ici l'ID d'un son que tu as toi-même
 -- téléversé (Creator Hub → Audio), sinon les supporters sautent en silence.
 -------------------------------------------------------------------------------
+-- MUSIQUE D'AMBIANCE (relaxante), jouée en boucle côté client avec un bouton
+-- muet. Même contrainte que le cri du public : il faut l'ID d'un audio que TU as
+-- téléversé (Creator Hub → Audio), ou un audio créé par Roblox lui-même. Un son
+-- uploadé par un tiers ne joue pas dans ton expérience depuis la mise à jour
+-- audio privacy. Laisse "" et le bouton s'affiche « musique à configurer ».
+Config.Music = {
+	soundId = "",        -- ex. "rbxassetid://123456789"
+	volume = 0.25,       -- discret : c'est un fond, pas un concert
+}
+
 Config.Crowd = {
 	soundId = "",        -- ex. "rbxassetid://123456789"
 	volume = 0.6,

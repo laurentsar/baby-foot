@@ -75,9 +75,12 @@ end
 
 -- Construit le baby-foot. Retourne les infos utiles au moteur de tir.
 -- originOverride permet un plot par joueur (offset dans le monde).
-function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
+-- bigGoal = pass Grand Terrain. Il élargit le BUT, il n'allonge plus le terrain :
+-- allonger éloignait le fond et rendait le but plus dur, l'inverse de ce que le
+-- pass promet.
+function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?)
 	local F = Config.Field
-	local length = F.length * fieldMult
+	local length = F.length
 	local width = F.width
 	local origin = originOverride or F.origin
 
@@ -101,11 +104,25 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 	part("MurDroit", Vector3.new(2, F.wallHeight, length),
 		CFrame.new(origin.X + width / 2 + 1, origin.Y + F.wallHeight / 2, origin.Z), WOOD, root)
 
-	-- Fond du terrain = LE BUT adverse (cible du x3). Signalé en néon.
+	-- Fond du terrain = LE BUT adverse (cible du x3). Il ne fait qu'une fraction
+	-- de la largeur : il faut viser, une balle qui arrive à côté ne marque pas.
 	local goalZ = origin.Z + half + F.goalDepth / 2
-	local goal = part("But", Vector3.new(width, F.wallHeight + 4, F.goalDepth),
+	local goalWidth = math.min(width * F.goalWidthRatio * (if bigGoal then Config.BigGoalMultiplier else 1),
+		width - 8)
+	local goal = part("But", Vector3.new(goalWidth, F.wallHeight + 4, F.goalDepth),
 		CFrame.new(origin.X, origin.Y + (F.wallHeight + 4) / 2, goalZ), NEON, root, Enum.Material.Neon)
 	goal.Transparency = 0.35
+
+	-- Poteaux + fond plein de chaque côté : on voit où il faut mettre la balle.
+	for _, side in { -1, 1 } do
+		part("Poteau", Vector3.new(1.6, F.wallHeight + 8, 1.6),
+			CFrame.new(origin.X + side * goalWidth / 2, origin.Y + (F.wallHeight + 8) / 2, goalZ - F.goalDepth / 2),
+			Color3.fromRGB(255, 255, 255), root, Enum.Material.Neon)
+		local sidePanel = (width - goalWidth) / 2
+		part("FondPlein", Vector3.new(sidePanel, F.wallHeight, F.goalDepth),
+			CFrame.new(origin.X + side * (goalWidth + sidePanel) / 2,
+				origin.Y + F.wallHeight / 2, goalZ), WOOD, root)
+	end
 
 	-- Mur derrière ton point de tir, PERCÉ au milieu : c'est par ce trou qu'on
 	-- entre depuis l'allée. Deux panneaux de part et d'autre de l'ouverture.
@@ -205,6 +222,7 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		length = length,
 		goalZ = goalZ,
 		goalPart = goal,
+		goalHalfWidth = goalWidth / 2,
 		shootPos = Vector3.new(origin.X, origin.Y + 2, shootZ),
 		shootPad = shootPad,
 		barrierZ = barrierZ,

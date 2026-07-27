@@ -2,7 +2,7 @@
 
 Jeu Roblox (Rojo) — simulateur baby-foot : entraîne-toi aux haltères pour gagner
 de la puissance, recrute tes joueurs aux dés, vise à la caméra et touche-les pour
-gagner de l'argent, marque au fond pour un **x4**, améliore ton matériel, fais
+gagner de l'argent, marque entre les poteaux pour un **x3**, améliore ton matériel, fais
 des **renaissances** et grimpe au **classement mondial**.
 
 ## Boucle de jeu
@@ -29,13 +29,14 @@ des **renaissances** et grimpe au **classement mondial**.
    La **rareté se lit sur le socle lumineux** sous chaque joueur.
 5. **Toucher / Marquer** — chaque joueur touché rapporte selon **sa rareté**
    (valeur du joueur × multiplicateur de la carte × balle × bonus).
-   Si la balle atteint le **fond du baby-foot (but adverse)** → **×4** sur le tir.
+   Si la balle finit **dans le but** (il ne fait que 30 % de la largeur : il faut
+   viser entre les poteaux) → **×3 sur le total du tir**, joueurs touchés en
+   chemin compris.
    Un tir trop faible s'arrête avant le but → tu gagnes seulement les touches,
    **sans multiplicateur**.
-6. **Améliorer** 🛒 — meilleurs haltères, meilleure balle, emplacements
-   supplémentaires, valeur des joueurs.
-7. **Renaissance** 🔄 — reset argent + upgrades + emplacements contre un
-   multiplicateur permanent (1 = ×2, 2 = ×4, 3 = ×6, puis +2).
+6. **Améliorer** 🛒 — meilleurs haltères, meilleure balle, valeur des joueurs.
+7. **Renaissance** 🔄 — reset argent + upgrades contre un multiplicateur
+   permanent : **×2, ×4, ×6, ×8… (2 × le nombre de renaissances)**.
    **La collection de joueurs est conservée.**
 8. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
    à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
@@ -53,7 +54,7 @@ des **renaissances** et grimpe au **classement mondial**.
 | **Renaissance x2** | double le multiplicateur de renaissance |
 | **Dés Chanceux** | poids des communs divisé par 3 → bien plus de raretés |
 | **Vitesse Balle x2** | la balle part 2× plus vite |
-| **Grand Terrain** | fond du baby-foot 2× plus grand → but plus facile |
+| **Grand Terrain** | but 2× plus large → marquer devient bien plus facile |
 
 > Les IDs vivent dans un seul bloc, `Config.PassIds` en tête de
 > `src/ReplicatedStorage/Config.lua`. Ils ne peuvent pas être fournis à
@@ -107,9 +108,11 @@ rojo build -o BabyFootPower.rbxlx
   son propre stade.
 - Les plots libérés sont **réutilisés** (pile de slots) : sans ça ils
   s'éloignaient indéfiniment au fil des allées et venues.
-- **Cri du public** : les supporters bondissent en ola à chaque but. Le son est
-  optionnel — renseigne `Config.Crowd.soundId` avec un audio **que tu as
-  toi-même téléversé** : depuis la mise à jour *audio privacy* de Roblox, un son
-  uploadé par un tiers n'est pas lisible dans ton jeu.
+- **Sons** : les supporters bondissent en ola à chaque but, et une musique
+  d'ambiance tourne en boucle avec un bouton muet. Les deux sont optionnels —
+  `Config.Crowd.soundId` et `Config.Music.soundId` attendent l'ID d'un audio
+  **que tu as toi-même téléversé** : depuis la mise à jour *audio privacy* de
+  Roblox, un son uploadé par un tiers n'est pas lisible dans ton jeu. Vides, la
+  ola reste silencieuse et le bouton affiche « à configurer ».
 - Tir **serveur-autoritaire** (simulation de la balle côté serveur, anti-triche).
 - La description du jeu à coller dans Roblox est dans `DESCRIPTION.md`.

@@ -13,7 +13,7 @@ Rare, Épique, Légendaire et l'ultra-rare MYTHIQUE (×60 !). Compose ton équip
 sur les 4 bases du baby-foot : Attaque, Milieu, Défense, Gardien —
 **11 joueurs au maximum**, comme une vraie équipe. Plus tes joueurs sont rares,
 plus chaque touche rapporte 💰 — et si ta balle atteint le but adverse, tu
-remportes un **x4** sur tout ton tir !
+remportes un **x3** sur tout ton tir !
 
 Réinvestis ton argent : de meilleurs haltères, une meilleure balle, des
 emplacements supplémentaires sur les bases et des joueurs qui valent plus.
