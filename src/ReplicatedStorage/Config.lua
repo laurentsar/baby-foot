@@ -49,12 +49,12 @@ Config.Bases = {
 }
 
 Config.MaxSquad = 11        -- plafond dur : on ne place jamais plus de 11 joueurs
-Config.StartingSlots = 4    -- emplacements débloqués au départ
-
--- Équipe de départ : autant de joueurs que d'emplacements, tous dans la pire
--- rareté. Le terrain n'est jamais vide au premier lancement — on voit tout de
--- suite ce qu'on tire, et les dés servent à REMPLACER ces joueurs médiocres.
-Config.StarterCards = Config.StartingSlots
+-- L'équipe est COMPLÈTE dès le départ : 11 emplacements ouverts, 11 joueurs
+-- posés. Les acheter un par un laissait le terrain à moitié vide et donnait
+-- l'impression qu'il manquait des joueurs. La progression, ce n'est pas le
+-- nombre : ce sont les dés, qui remplacent les Communs par des raretés.
+Config.StartingSlots = 11
+Config.StarterCards = Config.MaxSquad
 Config.StarterRarity = "commun"
 
 -- Coût du prochain emplacement (du 5e au 11e).

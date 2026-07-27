@@ -22,11 +22,10 @@ des **renaissances** et grimpe au **classement mondial**.
    Mythique ×60. Le tirage est fait par le serveur (le client n'envoie que
    « je lance »).
 4. **Composer l'équipe** 👥 — le terrain est un vrai baby-foot : **4 bases**
-   (Attaque 3, Milieu 5, Défense 2, Gardien 1) soit **11 joueurs au maximum**,
-   en maillot de Paris. Les emplacements se débloquent en boutique (4 au
-   départ → 11), **en rond du gardien vers l'attaque** : dès la première partie
-   tu as un gardien, un défenseur, un milieu et un attaquant. Les meilleures
-   cartes de la collection s'y placent automatiquement.
+   (Attaque 3, Milieu 5, Défense 2, Gardien 1) = **11 joueurs**, en maillot de
+   Paris. L'équipe est **complète dès la première partie** (11 Communs offerts) :
+   la progression n'est pas le nombre de joueurs mais leur rareté — les dés
+   remplacent les Communs, les meilleures cartes se placent automatiquement.
    La **rareté se lit sur le socle lumineux** sous chaque joueur.
 5. **Toucher / Marquer** — chaque joueur touché rapporte selon **sa rareté**
    (valeur du joueur × multiplicateur de la carte × balle × bonus).
@@ -41,7 +40,9 @@ des **renaissances** et grimpe au **classement mondial**.
 8. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
    à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
    Le cycle vit côté serveur, le panneau ne fait que l'afficher.
-9. **Classement mondial** 🏆 — panneau géant in-game (argent total), OrderedDataStore.
+9. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
+   OrderedDataStore : un au parvis (visible dès l'arrivée) et le grand écran
+   derrière le but. Une seule requête sert tous les panneaux.
 
 ## Game Passes (Robux)
 
@@ -94,11 +95,14 @@ rojo build -o BabyFootPower.rbxlx
 
 - Chaque joueur a **son propre terrain** (plot décalé dans le monde) — pas de
   conflit d'équipe entre joueurs.
-- **Arrivée** : on apparaît sur le parvis de son plot, puis on remonte l'allée
-  bordée d'arbres et on passe sous le portique du stade. Un seul `SpawnLocation`
-  est actif (celui du premier plot) : avec un plot par joueur, Roblox en
-  choisirait un au hasard et on arriverait chez le voisin — le serveur téléporte
-  ensuite chacun sur son propre parvis.
+- **Arrivée** : on apparaît **au début de l'allée**, face au stade, puis on
+  remonte le chemin bordé d'arbres et on entre par le passage percé dans le mur
+  arrière. Le `SpawnLocation` par défaut est créé **hors plot** : les plots sont
+  détruits quand leur joueur part, et un spawn qui disparaît ferait apparaître
+  les suivants à l'origine du monde. Le serveur téléporte ensuite chacun devant
+  son propre stade.
+- Les plots libérés sont **réutilisés** (pile de slots) : sans ça ils
+  s'éloignaient indéfiniment au fil des allées et venues.
 - **Cri du public** : les supporters bondissent en ola à chaque but. Le son est
   optionnel — renseigne `Config.Crowd.soundId` avec un audio **que tu as
   toi-même téléversé** : depuis la mise à jour *audio privacy* de Roblox, un son

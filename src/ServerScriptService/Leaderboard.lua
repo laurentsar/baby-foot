@@ -15,10 +15,24 @@ if game.PlaceId ~= 0 then  -- place non publié => OrderedDataStore inaccessible
 	end)
 end
 
-local gui: SurfaceGui? = nil
+-- Plusieurs panneaux peuvent afficher le classement (stade + parvis d'entrée) :
+-- ils sont tous alimentés par le même appel à refresh(), et une seule requête
+-- OrderedDataStore les sert tous.
+local guis: { SurfaceGui } = {}
 
 function Leaderboard.attach(surfaceGui: SurfaceGui)
-	gui = surfaceGui
+	table.insert(guis, surfaceGui)
+end
+
+-- À appeler quand le panneau disparaît (départ d'un joueur) : sinon la liste
+-- grossit indéfiniment avec des panneaux détruits.
+function Leaderboard.detach(surfaceGui: SurfaceGui)
+	for i, g in guis do
+		if g == surfaceGui then
+			table.remove(guis, i)
+			return
+		end
+	end
 end
 
 function Leaderboard.submit(userId: number, totalEarned: number)
@@ -37,12 +51,19 @@ local function nameFor(userId: number): string
 	return ok and name or ("Joueur " .. userId)
 end
 
+local function setAll(text: string)
+	for _, g in guis do
+		local label = g:FindFirstChild("List") :: TextLabel?
+		if label then
+			label.Text = text
+		end
+	end
+end
+
 function Leaderboard.refresh()
-	if not gui then return end
-	local label = gui:FindFirstChild("List") :: TextLabel?
-	if not label then return end
+	if #guis == 0 then return end
 	if not ordered then
-		label.Text = "Classement disponible après publication du jeu."
+		setAll("Classement disponible après publication du jeu.")
 		return
 	end
 
@@ -50,7 +71,7 @@ function Leaderboard.refresh()
 		return ordered:GetSortedAsync(false, 10)
 	end)
 	if not ok or not pages then
-		label.Text = "Classement indisponible (API désactivée ?)"
+		setAll("Classement indisponible (API désactivée ?)")
 		return
 	end
 
@@ -66,9 +87,9 @@ function Leaderboard.refresh()
 		rank += 1
 	end
 	if #rows == 0 then
-		label.Text = "Sois le premier au classement !"
+		setAll("Sois le premier au classement !")
 	else
-		label.Text = table.concat(rows, "\n")
+		setAll(table.concat(rows, "\n"))
 	end
 end
 

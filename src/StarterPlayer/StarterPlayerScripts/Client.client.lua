@@ -310,8 +310,9 @@ end
 shopHeader("💪 ENTRAÎNEMENT & BALLE", 1, ACCENT)
 upgradeButton("dumbbell", 2)
 upgradeButton("ball", 3)
+-- Plus de bouton « emplacement » : l'équipe est complète dès le départ, on
+-- améliore la valeur des joueurs et on remplace les Communs aux dés.
 shopHeader("⚽ ÉQUIPE", 4, GOLD)
-upgradeButton("slot", 5)
 upgradeButton("value", 6)
 shopHeader("🔄 RENAISSANCE", 7, Color3.fromRGB(255, 120, 200))
 local rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
@@ -496,16 +497,6 @@ rStats.OnClientEvent:Connect(function(s)
 	else
 		bb.Text = "Balle MAX\n(" .. s.ball.name .. ")"
 		bb.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
-	end
-
-	local slotBtn = upgradeButtons.slot
-	if s.slots >= s.maxSlots then
-		slotBtn.Text = string.format("Emplacements MAX (%d/%d)", s.slots, s.maxSlots)
-		slotBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
-	else
-		slotBtn.Text = string.format("+1 Emplacement (%d/%d)\n%s $",
-			s.slots, s.maxSlots, Config.abbreviate(s.slotCost))
-		slotBtn.BackgroundColor3 = s.money >= s.slotCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(200, 150, 60)
 	end
 
 	diceBtn.Text = string.format("🎲 RECRUTER\n%s $", Config.abbreviate(s.diceCost))

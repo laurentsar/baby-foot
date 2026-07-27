@@ -25,6 +25,54 @@ local function part(name: string, size: Vector3, cf: CFrame, color: Color3, pare
 	return p
 end
 
+-- Contenu d'un panneau de classement : titre, liste des 10 premiers, bandeau du
+-- compte à rebours. Partagé par le panneau du stade et celui du parvis — les
+-- deux sont ensuite alimentés par Leaderboard.attach.
+function FieldBuilder.boardGui(surface: BasePart, face: Enum.NormalId): SurfaceGui
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "ClassementGui"
+	gui.Face = face
+	gui.CanvasSize = Vector2.new(900, 520)
+	gui.Parent = surface
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.fromScale(1, 0.14)
+	title.BackgroundColor3 = Color3.fromRGB(255, 180, 40)
+	title.Text = "🏆 CLASSEMENT MONDIAL — Argent total"
+	title.Font = Enum.Font.GothamBlack
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(20, 20, 20)
+	title.Parent = gui
+
+	-- Bandeau du bas : compte à rebours du prochain coup de sifflet (bonus argent).
+	local timer = Instance.new("TextLabel")
+	timer.Name = "Timer"
+	timer.Position = UDim2.fromScale(0, 0.86)
+	timer.Size = UDim2.fromScale(1, 0.14)
+	timer.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+	timer.Text = "⏱ …"
+	timer.Font = Enum.Font.GothamBlack
+	timer.TextScaled = true
+	timer.TextColor3 = Color3.fromRGB(255, 210, 60)
+	timer.Parent = gui
+
+	local list = Instance.new("TextLabel")
+	list.Name = "List"
+	list.Position = UDim2.fromScale(0, 0.16)
+	list.Size = UDim2.fromScale(1, 0.70)
+	list.BackgroundTransparency = 1
+	list.Text = "Chargement…"
+	list.Font = Enum.Font.GothamBold
+	list.TextScaled = false
+	list.TextSize = 34
+	list.TextXAlignment = Enum.TextXAlignment.Left
+	list.TextYAlignment = Enum.TextYAlignment.Top
+	list.TextColor3 = Color3.fromRGB(240, 240, 255)
+	list.Parent = gui
+
+	return gui
+end
+
 -- Construit le baby-foot. Retourne les infos utiles au moteur de tir.
 -- originOverride permet un plot par joueur (offset dans le monde).
 function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
@@ -482,7 +530,7 @@ end
 -- Retourne la position d'apparition (le joueur y est téléporté à chaque spawn :
 -- avec un plot par joueur, on ne peut pas laisser Roblox choisir un
 -- SpawnLocation au hasard entre les plots).
-function FieldBuilder.buildEntrance(originOverride: Vector3?, enableSpawn: boolean?)
+function FieldBuilder.buildEntrance(originOverride: Vector3?)
 	local o = originOverride or Config.Field.origin
 	local E = Config.Entrance
 	local F = Config.Field
@@ -505,11 +553,11 @@ function FieldBuilder.buildEntrance(originOverride: Vector3?, enableSpawn: boole
 	spawnPad.CFrame = CFrame.new(o.X, o.Y + 1, plazaZ)
 	spawnPad.Color = Color3.fromRGB(255, 210, 60)
 	spawnPad.Material = Enum.Material.Neon
-	-- Un seul parvis (celui du premier plot) garde un SpawnLocation actif : c'est
-	-- le point d'apparition par défaut de Roblox. Les autres sont désactivés,
-	-- sinon on apparaîtrait au hasard chez un voisin. Le serveur téléporte
-	-- ensuite chacun sur SON parvis.
-	spawnPad.Enabled = enableSpawn == true
+	-- Marqueur visuel seulement : tous les SpawnLocation de plot sont désactivés
+	-- (Roblox en choisirait un au hasard et on arriverait chez le voisin). Le
+	-- point d'apparition par défaut est créé une fois pour toutes par le serveur,
+	-- hors plot — un plot est détruit quand son joueur part.
+	spawnPad.Enabled = false
 	spawnPad.Neutral = true
 	spawnPad.Parent = model
 
@@ -574,9 +622,25 @@ function FieldBuilder.buildEntrance(originOverride: Vector3?, enableSpawn: boole
 		tree(o.X + side * (18 + (i % 3) * 13), plazaZ - 16 - (i % 3) * 12, 1 + (i % 2) * 0.2)
 	end
 
+	-- Classement mondial visible dès l'arrivée, à côté du parvis : le panneau du
+	-- stade est derrière le but, donc invisible tant qu'on n'a pas traversé.
+	local boardStand = Instance.new("Model")
+	boardStand.Name = "PanneauClassementEntree"
+	boardStand.Parent = model
+	local boardZ = plazaZ + 6
+	local boardX = o.X - E.plazaSize / 2 - 16
+	part("Pied", Vector3.new(3, 20, 3),
+		CFrame.new(boardX, o.Y + 10, boardZ), Color3.fromRGB(30, 30, 40), boardStand, Enum.Material.Metal)
+	local panel = part("Ecran", Vector3.new(2, 24, 40),
+		CFrame.new(boardX, o.Y + 28, boardZ), Color3.fromRGB(12, 14, 20), boardStand)
+	local entranceGui = FieldBuilder.boardGui(panel, Enum.NormalId.Right)
+
 	return {
 		model = model,
-		spawnPos = Vector3.new(o.X, o.Y + 4, plazaZ),
+		-- On apparaît au DÉBUT DE L'ALLÉE, face au stade : le centre du parvis
+		-- laissait le joueur dos au portique, sans savoir où aller.
+		spawnPos = Vector3.new(o.X, o.Y + 4, plazaZ + E.plazaSize / 2 - 6),
+		board = entranceGui,
 	}
 end
 
@@ -681,48 +745,7 @@ function FieldBuilder.buildLeaderboardBoard(field): SurfaceGui
 		Color3.fromRGB(12, 14, 20), stand, Enum.Material.SmoothPlastic)
 	board.Orientation = Vector3.new(0, 180, 0)
 
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = "ClassementGui"
-	gui.Face = Enum.NormalId.Front
-	gui.CanvasSize = Vector2.new(900, 520)
-	gui.Parent = board
-
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.fromScale(1, 0.14)
-	title.BackgroundColor3 = Color3.fromRGB(255, 180, 40)
-	title.Text = "🏆 CLASSEMENT MONDIAL — Argent total"
-	title.Font = Enum.Font.GothamBlack
-	title.TextScaled = true
-	title.TextColor3 = Color3.fromRGB(20, 20, 20)
-	title.Parent = gui
-
-	-- Bandeau du bas : compte à rebours du prochain coup de sifflet (bonus argent).
-	local timer = Instance.new("TextLabel")
-	timer.Name = "Timer"
-	timer.Position = UDim2.fromScale(0, 0.86)
-	timer.Size = UDim2.fromScale(1, 0.14)
-	timer.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-	timer.Text = "⏱ …"
-	timer.Font = Enum.Font.GothamBlack
-	timer.TextScaled = true
-	timer.TextColor3 = Color3.fromRGB(255, 210, 60)
-	timer.Parent = gui
-
-	local list = Instance.new("TextLabel")
-	list.Name = "List"
-	list.Position = UDim2.fromScale(0, 0.16)
-	list.Size = UDim2.fromScale(1, 0.70)
-	list.BackgroundTransparency = 1
-	list.Text = "Chargement…"
-	list.Font = Enum.Font.GothamBold
-	list.TextScaled = false
-	list.TextSize = 34
-	list.TextXAlignment = Enum.TextXAlignment.Left
-	list.TextYAlignment = Enum.TextYAlignment.Top
-	list.TextColor3 = Color3.fromRGB(240, 240, 255)
-	list.Parent = gui
-
-	return gui
+	return FieldBuilder.boardGui(board, Enum.NormalId.Front)
 end
 
 return FieldBuilder

@@ -44,11 +44,18 @@ type Session = {
 	lastShot: number,
 	lastRoll: number,
 	spawnPos: Vector3?,
+	props: { Instance }?,      -- décor du plot (entrée, gym) à détruire au départ
+	board: SurfaceGui?,        -- panneau de classement du parvis
 }
 
 local sessions: { [Player]: Session } = {}
 local nextSlot = 0
+local freeSlots: { number } = {}   -- plots rendus par les joueurs partis
 local SLOT_SPACING = 320  -- distance entre deux plots
+
+-- Tous les panneaux de classement (stade + un parvis par plot) : le compte à
+-- rebours du coup de sifflet est écrit sur chacun.
+local boards: { SurfaceGui } = {}
 
 -------------------------------------------------------------------------------
 -- Game passes.
@@ -467,8 +474,8 @@ rRebirth.OnServerEvent:Connect(function(player)
 	d.dumbbell = 1
 	d.ball = 1
 	d.valueLevel = 0
-	d.slots = Config.StartingSlots
-	-- d.cards est conservé : la collection est la progression longue du jeu.
+	-- Les emplacements ne sont pas remis à zéro : l'équipe reste complète, et
+	-- d.cards est conservé — la collection est la progression longue du jeu.
 	repopulate(session)
 	updateLeaderstats(session, player)
 	pushStats(player)
@@ -513,17 +520,17 @@ end)
 local function onPlayerAdded(player: Player)
 	local data = DataStore.load(player.UserId)
 
-	-- Première partie : on donne l'équipe de départ, la pire possible, mais déjà
-	-- posée sur les bases. Un terrain vide au premier lancement ne montrerait ni
-	-- les bases ni l'intérêt des dés.
-	if #data.cards == 0 then
-		for _ = 1, Config.StarterCards do
-			table.insert(data.cards, {
-				name = Config.randomPlayerName(rng),
-				rarity = Config.StarterRarity,
-			})
-		end
+	-- L'équipe est toujours au complet : on complète la collection avec des
+	-- Communs jusqu'à 11 joueurs. Vaut pour la première partie comme pour une
+	-- sauvegarde d'avant (où seuls 4 emplacements étaient ouverts) — un terrain
+	-- à trous donnait l'impression qu'il manquait des joueurs.
+	while #data.cards < Config.StarterCards do
+		table.insert(data.cards, {
+			name = Config.randomPlayerName(rng),
+			rarity = Config.StarterRarity,
+		})
 	end
+	data.slots = math.max(data.slots or 0, Config.StartingSlots)
 
 	-- leaderstats
 	local ls = Instance.new("Folder")
@@ -533,9 +540,12 @@ local function onPlayerAdded(player: Player)
 	local pow = Instance.new("IntValue"); pow.Name = "Puissance"; pow.Parent = ls
 	ls.Parent = player
 
-	-- Plot dédié
-	local slot = nextSlot
-	nextSlot += 1
+	-- Plot dédié. Les emplacements libérés sont réutilisés : sinon les plots
+	-- s'éloignent indéfiniment au fil des allées et venues.
+	local slot = table.remove(freeSlots) or nextSlot
+	if slot == nextSlot then
+		nextSlot += 1
+	end
 	local origin = Config.Field.origin + Vector3.new(slot * SLOT_SPACING, 0, 0)
 
 	local session: Session = {
@@ -547,6 +557,8 @@ local function onPlayerAdded(player: Player)
 		lastShot = 0,
 		lastRoll = 0,
 		spawnPos = nil,
+		props = nil,
+		board = nil,
 	}
 	sessions[player] = session
 
@@ -554,9 +566,19 @@ local function onPlayerAdded(player: Player)
 
 	local fieldMult = session.passes.BigField and Config.BigFieldMultiplier or 1
 	session.field = FieldBuilder.build(fieldMult, origin)
-	FieldBuilder.buildTrainingArea(origin)
-	local entrance = FieldBuilder.buildEntrance(origin, slot == 0)
+	local training = FieldBuilder.buildTrainingArea(origin)
+	local entrance = FieldBuilder.buildEntrance(origin)
 	session.spawnPos = entrance.spawnPos
+	session.props = { training.model, entrance.model }
+	session.board = entrance.board
+
+	-- Panneau de classement du parvis : visible dès l'arrivée, alimenté par le
+	-- même rafraîchissement que celui du stade.
+	if entrance.board then
+		Leaderboard.attach(entrance.board)
+		table.insert(boards, entrance.board)
+		task.spawn(Leaderboard.refresh)
+	end
 
 	repopulate(session)
 	updateLeaderstats(session, player)
@@ -585,7 +607,40 @@ local function onPlayerRemoving(player: Player)
 	if session.field and session.field.root then
 		session.field.root:Destroy()
 	end
+
+	-- Décor du plot : sans ça, chaque passage laissait un stade fantôme (entrée,
+	-- arbres, gym) dans le monde.
+	for _, prop in session.props or {} do
+		if prop then prop:Destroy() end
+	end
+	if session.board then
+		Leaderboard.detach(session.board)
+		for i, b in boards do
+			if b == session.board then
+				table.remove(boards, i)
+				break
+			end
+		end
+	end
+	table.insert(freeSlots, session.slot)
+
 	sessions[player] = nil
+end
+
+-- Point d'apparition par défaut de Roblox, hors plot : un plot est détruit quand
+-- son joueur part, et un SpawnLocation qui disparaît fait apparaître les
+-- suivants à l'origine du monde, au milieu d'un terrain.
+do
+	local lobby = Instance.new("SpawnLocation")
+	lobby.Name = "SpawnMonde"
+	lobby.Anchored = true
+	lobby.Neutral = true
+	lobby.Size = Vector3.new(16, 1, 16)
+	lobby.Color = Color3.fromRGB(255, 210, 60)
+	lobby.Material = Enum.Material.Neon
+	lobby.CFrame = CFrame.new(Config.Field.origin
+		+ Vector3.new(0, 1, Config.Field.shootLine - Config.Entrance.plazaOffset))
+	lobby.Parent = workspace
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -609,6 +664,7 @@ local gui = FieldBuilder.buildLeaderboardBoard({
 	goalZ = Config.Field.origin.Z + Config.Field.length / 2 + Config.Field.goalDepth,
 })
 Leaderboard.attach(gui)
+table.insert(boards, gui)
 
 task.spawn(function()
 	while true do
@@ -622,7 +678,6 @@ end)
 -- bonus où tous les gains sont multipliés (voir moneyMultiplier).
 -------------------------------------------------------------------------------
 task.spawn(function()
-	local timer = gui:FindFirstChild("Timer") :: TextLabel?
 	local M = Config.Match
 	while true do
 		local now = os.clock()
@@ -638,15 +693,21 @@ task.spawn(function()
 			end
 		end
 
-		if timer then
-			if boostActive() then
-				timer.Text = string.format("🔥 ARGENT ×%d — encore %d s",
-					M.boostMult, math.ceil(boostUntil - now))
-				timer.TextColor3 = Color3.fromRGB(120, 255, 140)
-			else
-				timer.Text = string.format("⏱ Prochain bonus ×%d dans %d s",
-					M.boostMult, math.max(0, math.ceil(nextWhistle - now)))
-				timer.TextColor3 = Color3.fromRGB(255, 210, 60)
+		local text, color
+		if boostActive() then
+			text = string.format("🔥 ARGENT ×%d — encore %d s",
+				M.boostMult, math.ceil(boostUntil - now))
+			color = Color3.fromRGB(120, 255, 140)
+		else
+			text = string.format("⏱ Prochain bonus ×%d dans %d s",
+				M.boostMult, math.max(0, math.ceil(nextWhistle - now)))
+			color = Color3.fromRGB(255, 210, 60)
+		end
+		for _, board in boards do
+			local timer = board:FindFirstChild("Timer") :: TextLabel?
+			if timer then
+				timer.Text = text
+				timer.TextColor3 = color
 			end
 		end
 
