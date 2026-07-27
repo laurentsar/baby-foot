@@ -188,11 +188,14 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	local field = session.field
 	local S = Config.Shot
-	angleDeg = math.clamp(angleDeg, -55, 55)
+	-- L'angle vient de l'orientation caméra du client ; le serveur reste maître
+	-- des bornes (un client modifié ne peut pas tirer à 180°).
+	angleDeg = math.clamp(angleDeg, -S.maxAngle, S.maxAngle)
 	chargePct = math.clamp(chargePct, 0, 1)
 
-	-- Vitesse = base + puissance, modulée par la charge, x2 si pass vitesse.
-	local speed = (S.baseSpeed + session.data.power * S.powerToSpeed) * (0.4 + 0.6 * chargePct)
+	-- Vitesse = base + puissance, modulée par le palier de charge, x2 si pass vitesse.
+	local tier = Config.chargeTier(chargePct)
+	local speed = (S.baseSpeed + session.data.power * S.powerToSpeed) * tier.speedMult
 	if session.passes.BallSpeedX2 then speed *= 2 end
 	speed = math.min(speed, S.maxSpeed)
 
@@ -288,6 +291,7 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 		hits = hits,
 		money = money,
 		scored = scored,
+		tier = tier.label,
 	})
 
 	-- Respawn des cibles après le tir.
@@ -454,7 +458,8 @@ local function onPlayerRemoving(player: Player)
 	local session = sessions[player]
 	if not session then return end
 	Leaderboard.submit(player.UserId, session.data.totalEarned)
-	DataStore.save(player.UserId, session.data)
+	DataStore.save(player.UserId, session.data, true)  -- départ : on force
+	DataStore.forget(player.UserId)
 	if session.field and session.field.root then
 		session.field.root:Destroy()
 	end
@@ -469,7 +474,7 @@ end
 
 game:BindToClose(function()
 	for player, session in sessions do
-		DataStore.save(player.UserId, session.data)
+		DataStore.save(player.UserId, session.data, true)  -- arrêt serveur : on force
 	end
 	task.wait(1)
 end)

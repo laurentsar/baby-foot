@@ -3,7 +3,6 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
@@ -123,62 +122,38 @@ trainBtn.Size = UDim2.fromOffset(200, 90)
 trainBtn.Position = UDim2.new(0, 24, 0, 40)
 trainBtn.TextSize = 28
 
--- Zone de visée (centre)
+-- VISÉE = ORIENTATION DE LA CAMÉRA. Plus de slider : on tire là où on regarde.
+-- L'axe du terrain est +Z, donc angle = atan2(look.X, look.Z), borné comme côté
+-- serveur (Config.Shot.maxAngle).
+local aimAngle = 0
+
 local aimFrame = make("Frame", {
-	Size = UDim2.fromOffset(360, 60),
-	Position = UDim2.new(0.5, -180, 0, 8),
+	Size = UDim2.fromOffset(300, 34),
+	Position = UDim2.new(0.5, -150, 0, 0),
 	BackgroundColor3 = PANEL,
+	BackgroundTransparency = 0.25,
 	BorderSizePixel = 0,
 }, bottom)
 corner(aimFrame, 10)
-make("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1,
-	Text = "VISÉE  ◄ ►", Font = Enum.Font.GothamBold, TextScaled = true,
-	TextColor3 = ACCENT,
+local aimLabel = make("TextLabel", {
+	Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(6, 0),
+	BackgroundTransparency = 1, Text = "VISÉE : regarde où tu veux tirer",
+	Font = Enum.Font.GothamBold, TextScaled = true, TextColor3 = ACCENT,
 }, aimFrame)
 
--- Slider de visée
-local sliderTrack = make("Frame", {
-	Size = UDim2.new(1, -24, 0, 10), Position = UDim2.new(0, 12, 0, 34),
-	BackgroundColor3 = Color3.fromRGB(60, 64, 80), BorderSizePixel = 0,
-}, aimFrame)
-corner(sliderTrack, 5)
-local sliderKnob = make("Frame", {
-	Size = UDim2.fromOffset(22, 22), Position = UDim2.new(0.5, -11, 0.5, -6),
-	BackgroundColor3 = GOLD, BorderSizePixel = 0, ZIndex = 2,
-}, sliderTrack)
-corner(sliderKnob, 11)
-
-local aimAngle = 0 -- -55..55
-local draggingSlider = false
-
-local function setAimFromX(px: number)
-	local abs = sliderTrack.AbsolutePosition.X
-	local w = sliderTrack.AbsoluteSize.X
-	local t = math.clamp((px - abs) / w, 0, 1)
-	aimAngle = (t - 0.5) * 110 -- -55..55
-	sliderKnob.Position = UDim2.new(t, -11, 0.5, -6)
+local function updateAim()
+	-- Relu à chaque frame : la caméra est remplacée au respawn.
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+	local look = camera.CFrame.LookVector
+	local raw = math.deg(math.atan2(look.X, look.Z))
+	local maxA = Config.Shot.maxAngle
+	aimAngle = math.clamp(raw, -maxA, maxA)
+	local arrow = if aimAngle < -2 then "◄" elseif aimAngle > 2 then "►" else "▲"
+	local capped = if math.abs(raw) > maxA then "  (max)" else ""
+	aimLabel.Text = string.format("VISÉE %s %d°%s", arrow, math.floor(aimAngle + 0.5), capped)
+	aimLabel.TextColor3 = if capped == "" then ACCENT else Color3.fromRGB(255, 150, 90)
 end
-
-sliderTrack.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		draggingSlider = true
-		setAimFromX(input.Position.X)
-	end
-end)
-UserInputService.InputChanged:Connect(function(input)
-	if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement
-		or input.UserInputType == Enum.UserInputType.Touch) then
-		setAimFromX(input.Position.X)
-	end
-end)
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		draggingSlider = false
-	end
-end)
 
 -- Bouton TIR + jauge de charge (droite)
 local shootBtn = button("⚽ TIRER", ACCENT, bottom)
@@ -186,15 +161,38 @@ shootBtn.Size = UDim2.fromOffset(200, 90)
 shootBtn.Position = UDim2.new(1, -224, 0, 40)
 shootBtn.TextSize = 30
 
+-- JAUGE DE TIR : 4 paliers de qualité (rouge nul → vert foncé très bien).
+-- Les seuils et couleurs viennent de Config.ChargeTiers, partagé avec le serveur
+-- qui applique le multiplicateur correspondant : ce qu'on voit est ce qu'on tire.
 local chargeTrack = make("Frame", {
-	Size = UDim2.fromOffset(200, 14), Position = UDim2.new(1, -224, 0, 135),
+	Size = UDim2.fromOffset(440, 26), Position = UDim2.new(0.5, -220, 0, 96),
 	BackgroundColor3 = PANEL, BorderSizePixel = 0,
 }, bottom)
-corner(chargeTrack, 7)
+corner(chargeTrack, 13)
+make("UIStroke", { Color = Color3.fromRGB(70, 74, 92), Thickness = 1.5 }, chargeTrack)
+
 local chargeFill = make("Frame", {
-	Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = GOLD, BorderSizePixel = 0,
+	Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Config.ChargeTiers[1].color,
+	BorderSizePixel = 0,
 }, chargeTrack)
-corner(chargeFill, 7)
+corner(chargeFill, 13)
+
+-- Repères aux frontières de paliers, pour viser le vert foncé au relâcher.
+for i = 1, #Config.ChargeTiers - 1 do
+	make("Frame", {
+		Size = UDim2.new(0, 2, 1, 0),
+		Position = UDim2.new(Config.ChargeTiers[i].upTo, -1, 0, 0),
+		BackgroundColor3 = Color3.fromRGB(15, 16, 22),
+		BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 3,
+	}, chargeTrack)
+end
+
+local chargeLabel = make("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 22), Position = UDim2.new(0, 0, 0, 70),
+	BackgroundTransparency = 1, Text = "MAINTIENS ⚽ TIRER POUR CHARGER",
+	Font = Enum.Font.GothamBlack, TextScaled = true,
+	TextColor3 = Color3.fromRGB(210, 214, 230), ZIndex = 2,
+}, bottom)
 
 -- Logique de charge : maintenir TIR = charger, relâcher = tirer.
 local charging = false
@@ -210,7 +208,10 @@ end)
 local function fireShot()
 	if not charging then return end
 	charging = false
+	local tier = Config.chargeTier(charge)
 	rShoot:FireServer(aimAngle, charge)
+	chargeLabel.Text = "TIR : " .. tier.label
+	chargeLabel.TextColor3 = tier.color
 	charge = 0
 	chargeFill.Size = UDim2.new(0, 0, 1, 0)
 end
@@ -220,6 +221,7 @@ shootBtn.MouseLeave:Connect(function()
 end)
 
 RunService.RenderStepped:Connect(function(dt)
+	updateAim()
 	if charging then
 		-- va-et-vient de la jauge : relâche au bon moment pour un tir max.
 		if chargeUp then
@@ -229,8 +231,11 @@ RunService.RenderStepped:Connect(function(dt)
 			charge -= dt * 1.4
 			if charge <= 0 then charge = 0; chargeUp = true end
 		end
+		local tier = Config.chargeTier(charge)
 		chargeFill.Size = UDim2.new(charge, 0, 1, 0)
-		chargeFill.BackgroundColor3 = charge > 0.8 and Color3.fromRGB(120, 255, 120) or GOLD
+		chargeFill.BackgroundColor3 = tier.color
+		chargeLabel.Text = tier.label
+		chargeLabel.TextColor3 = tier.color
 	end
 end)
 
@@ -352,15 +357,17 @@ end
 rToast.OnClientEvent:Connect(function(msg) toast(msg) end)
 
 rShotResult.OnClientEvent:Connect(function(res)
+	local tier = res.tier and ("  •  " .. res.tier) or ""
 	if res.scored then
-		toast(string.format("🎯 BUT ! %d touchés  •  +%s $ (x%d)",
-			res.hits, Config.abbreviate(res.money), Config.Shot.scoreMultiplier),
+		toast(string.format("🎯 BUT ! %d touchés  •  +%s $ (x%d)%s",
+			res.hits, Config.abbreviate(res.money), Config.Shot.scoreMultiplier, tier),
 			Color3.fromRGB(60, 160, 90))
 	elseif res.hits > 0 then
-		toast(string.format("%d touchés  •  +%s $", res.hits, Config.abbreviate(res.money)),
+		toast(string.format("%d touchés  •  +%s $%s", res.hits, Config.abbreviate(res.money), tier),
 			Color3.fromRGB(60, 90, 140))
 	else
-		toast("Raté… vise mieux et charge plus fort !", Color3.fromRGB(120, 60, 60))
+		toast("Raté… tourne-toi vers les figurines et relâche dans le vert !",
+			Color3.fromRGB(120, 60, 60))
 	end
 end)
 
@@ -405,5 +412,7 @@ rStats.OnClientEvent:Connect(function(s)
 	rebirthBtn.BackgroundColor3 = s.money >= s.rebirthCost and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 80, 110)
 end)
 
-toast("⚽ Entraîne-toi aux haltères, puis charge ton tir et marque au fond pour le x3 !", Color3.fromRGB(50, 80, 120))
+toast("⚽ Entraîne-toi aux haltères, tourne-toi vers le terrain (la visée suit ta caméra), "
+	.. "relâche la jauge dans le vert foncé et marque au fond pour le x3 !",
+	Color3.fromRGB(50, 80, 120))
 print("[BabyFoot] Client prêt.")

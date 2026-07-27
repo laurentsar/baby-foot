@@ -1,7 +1,7 @@
 # ⚽ Baby-Foot Power
 
 Jeu Roblox (Rojo) — simulateur baby-foot : entraîne-toi aux haltères pour gagner
-de la puissance, tire au baby-foot en visant bien, touche les figurines pour
+de la puissance, vise à la caméra et tire au baby-foot, touche les figurines pour
 gagner de l'argent, marque au fond pour un **x3**, améliore ton matériel, fais
 des **renaissances** et grimpe au **classement mondial**.
 
@@ -9,9 +9,14 @@ des **renaissances** et grimpe au **classement mondial**.
 
 1. **S'entraîner** 🏋️ — tiens le bouton haltères pour accumuler de la *Puissance*
    (les meilleurs haltères en donnent plus par rep).
-2. **Tirer** ⚽ — règle la *visée* (slider) puis maintiens **TIRER** : une jauge
-   oscille, relâche au max pour un tir plus fort. Vitesse du tir = puissance ×
-   charge.
+2. **Tirer** ⚽ — la *visée suit ta caméra* : tourne-toi vers l'endroit du terrain
+   que tu veux frapper (borné à ±55° par le serveur), puis maintiens **TIRER** :
+   la jauge oscille et se lit en 4 paliers — 🔴 nul, 🟡 moyen, 🟢 bien,
+   🟩 vert foncé très bien. Vitesse du tir = puissance × palier atteint au relâcher.
+
+   Tu tires de **derrière la ligne rouge** : la moitié « approche » du terrain a
+   été retirée et la ligne est infranchissable pour les personnages (la balle,
+   elle, la traverse).
 3. **Toucher / Marquer** — chaque figurine touchée rapporte de l'argent.
    Si la balle atteint le **fond du baby-foot (but adverse)** → **×3** sur le tir.
    Un tir trop faible s'arrête avant le but → tu gagnes seulement les touches,
@@ -50,7 +55,7 @@ src/ServerScriptService/
   DataStore.lua               # sauvegarde des profils
   Leaderboard.lua             # classement mondial (OrderedDataStore)
 src/StarterPlayer/StarterPlayerScripts/
-  Client.client.lua           # UI : entraînement, visée, tir, boutique, passes
+  Client.client.lua           # UI : entraînement, visée caméra, jauge 4 paliers, boutique
 ```
 
 ## Lancer

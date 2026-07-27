@@ -41,9 +41,9 @@ Config.Balls = {
 -- playerValue : argent de base que donne chaque figurine touchée.
 -------------------------------------------------------------------------------
 Config.PlayerCount = {
-	base = 4,
-	perLevel = 1,          -- +1 figurine par niveau
-	maxLevel = 30,         -- plafond (repoussé par renaissance / pass)
+	base = 10,
+	perLevel = 2,          -- +2 figurines par niveau
+	maxLevel = 80,         -- plafond (repoussé par renaissance / pass)
 	baseCost = 800,
 	costGrowth = 1.6,      -- coût *= 1.6 par niveau
 }
@@ -62,7 +62,7 @@ Config.PlayerValue = {
 Config.Rebirth = {
 	baseCost = 50000,      -- coût de la 1re renaissance
 	costGrowth = 4,        -- coût *= 4 par renaissance
-	capacityBonus = 5,     -- +5 au plafond de figurines par renaissance
+	capacityBonus = 10,    -- +10 au plafond de figurines par renaissance
 }
 
 function Config.rebirthMultiplier(rebirths: number, hasRebirthPass: boolean): number
@@ -89,7 +89,7 @@ Config.Passes = {
 }
 
 -- Capacité bonus de figurines apportée par VIP.
-Config.VIPCapacityBonus = 6
+Config.VIPCapacityBonus = 12
 
 -------------------------------------------------------------------------------
 -- ENTRAÎNEMENT
@@ -105,25 +105,56 @@ Config.Shot = {
 	baseSpeed = 90,        -- vitesse de base d'un tir
 	powerToSpeed = 0.35,   -- studs/s de vitesse ajoutés par point de puissance
 	maxSpeed = 1400,
-	decel = 90,            -- décélération (studs/s²) : la puissance conditionne la distance
+	-- Distance parcourue ≈ v²/(2*decel) : le terrain ayant été réduit de moitié,
+	-- la décélération est doublée pour que marquer demande autant de puissance.
+	decel = 180,           -- décélération (studs/s²)
 	hitRadius = 5,         -- rayon de collision balle<->figurine
 	scoreMultiplier = 3,   -- x3 argent si la balle atteint le fond du baby-foot
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
 	bigFieldScoreFactor = 0.55, -- pass Grand Terrain : but atteint plus tôt
+	maxAngle = 55,         -- angle de tir max de part et d'autre de l'axe
 }
+
+-------------------------------------------------------------------------------
+-- QUALITÉ DE CHARGE : la jauge de tir se lit en 4 paliers.
+-- Partagé client/serveur : le client colore la barre, le serveur applique le
+-- multiplicateur de vitesse — les deux ne peuvent pas diverger.
+-------------------------------------------------------------------------------
+Config.ChargeTiers = {
+	{ upTo = 0.40, label = "NUL",       speedMult = 0.50, color = Color3.fromRGB(220, 60, 60)   },
+	{ upTo = 0.70, label = "MOYEN",     speedMult = 0.78, color = Color3.fromRGB(240, 200, 60)  },
+	{ upTo = 0.90, label = "BIEN",      speedMult = 1.00, color = Color3.fromRGB(90, 220, 90)   },
+	{ upTo = 1.01, label = "TRÈS BIEN", speedMult = 1.30, color = Color3.fromRGB(20, 130, 55)   },
+}
+
+function Config.chargeTier(charge: number)
+	local c = math.clamp(charge, 0, 1)
+	for _, tier in Config.ChargeTiers do
+		if c < tier.upTo then
+			return tier
+		end
+	end
+	return Config.ChargeTiers[#Config.ChargeTiers]
+end
 
 -------------------------------------------------------------------------------
 -- GÉOMÉTRIE DU TERRAIN (studs) — le baby-foot est généré proProcéduralement.
 -------------------------------------------------------------------------------
+-- Le terrain ne fait plus que la moitié avant : on tire depuis juste derrière la
+-- ligne d'engagement, tout l'espace restant est la zone de jeu (plus de longue
+-- approche vide). La ligne est infranchissable pour les personnages, la balle
+-- la traverse (elle est simulée en Anchored, sans collision).
 Config.Field = {
 	origin = Vector3.new(0, 3, 0),   -- centre du terrain
-	length = 160,                    -- longueur (axe de tir, +Z = but adverse)
+	length = 80,                     -- longueur (axe de tir, +Z = but adverse)
 	width = 60,                      -- largeur
 	wallHeight = 8,
 	rows = 5,                        -- nb de rangées de figurines
 	goalDepth = 10,                  -- profondeur du fond/but
-	shootLine = -70,                 -- Z du point de tir (ton but)
+	shootLine = -34,                 -- Z du point de tir (ton côté)
+	barrierOffset = 6,               -- ligne infranchissable, en avant du point de tir
+	barrierHeight = 14,              -- assez haut pour qu'on ne saute pas par-dessus
 }
 
 Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain

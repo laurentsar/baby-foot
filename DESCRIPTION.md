@@ -5,9 +5,11 @@
 **Description :**
 
 Deviens le roi du baby-foot ! 🏋️ Commence par t'entraîner aux haltères pour
-gagner de la PUISSANCE, puis charge ton tir et vise le fond du terrain.
-Plus tu touches de figurines, plus tu gagnes d'argent 💰 — et si ta balle
-atteint le but adverse, tu remportes un **x3** sur tout ton tir !
+gagner de la PUISSANCE, puis vise en tournant simplement ta caméra et charge
+ton tir : la jauge passe du rouge au vert foncé, relâche au bon moment pour
+un tir parfait. Le terrain est bourré de figurines 💥 — plus tu en touches,
+plus tu gagnes d'argent 💰 — et si ta balle atteint le but adverse, tu
+remportes un **x3** sur tout ton tir !
 
 Réinvestis ton argent : de meilleurs haltères pour t'entraîner plus vite,
 une meilleure balle pour gagner plus, plus de figurines et des figurines qui

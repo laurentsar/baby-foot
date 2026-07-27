@@ -68,6 +68,20 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 	local shootPad = part("PointDeTir", Vector3.new(10, 1.2, 10),
 		CFrame.new(origin.X, origin.Y + 0.1, shootZ), Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
 
+	-- LIGNE D'ENGAGEMENT : le joueur ne va pas sur le terrain, il tire de derrière.
+	-- Marquage au sol (visible) + mur invisible collant (infranchissable).
+	local barrierZ = shootZ + F.barrierOffset
+	local mark = part("LigneAvant", Vector3.new(width, 1.2, 1.5),
+		CFrame.new(origin.X, origin.Y + 0.1, barrierZ), Color3.fromRGB(255, 90, 90), root, Enum.Material.Neon)
+	mark.CanCollide = false
+
+	-- La balle est simulée en Anchored/CanCollide=false : elle traverse ce mur,
+	-- seuls les personnages sont bloqués.
+	local fence = part("BarriereAvant", Vector3.new(width + 6, F.barrierHeight, 1),
+		CFrame.new(origin.X, origin.Y + F.barrierHeight / 2, barrierZ), Color3.fromRGB(255, 90, 90), root)
+	fence.Transparency = 1
+	fence.CanCollide = true
+
 	-- Dossier des figurines (peuplé dynamiquement par le moteur de tir)
 	local figures = Instance.new("Folder")
 	figures.Name = "Figures"
@@ -83,6 +97,7 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 		goalPart = goal,
 		shootPos = Vector3.new(origin.X, origin.Y + 2, shootZ),
 		shootPad = shootPad,
+		barrierZ = barrierZ,
 		rows = F.rows,
 	}
 end
@@ -92,22 +107,27 @@ function FieldBuilder.populateFigures(field, count: number)
 	field.figuresFolder:ClearAllChildren()
 	if count <= 0 then return end
 
-	local rows = math.clamp(math.ceil(math.sqrt(count)), 1, 12)
-	local perRow = math.ceil(count / rows)
+	-- Les figurines sont bien plus nombreuses qu'avant : on privilégie des rangées
+	-- larges (8 de front) plutôt qu'un carré, sinon elles s'empilent en profondeur
+	-- sur la moitié de terrain qui reste.
+	local ROW_MAX = 8
+	local rows = math.clamp(math.ceil(count / ROW_MAX), 1, 10)
 	local placed = 0
 
-	-- Réparties sur toute la longueur (dès le tireur jusqu'au but) :
-	-- même un tir faible touche les figurines proches ; les rangées lointaines
-	-- exigent plus de puissance.
-	local startZ = field.origin.Z + Config.Field.shootLine + 20
+	-- Réparties entre la ligne d'engagement et le but : même un tir faible touche
+	-- les figurines proches, les rangées lointaines exigent plus de puissance.
+	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 8
 	local endZ = field.goalZ - Config.Field.goalDepth - 6
 	local spanZ = endZ - startZ
 
 	for r = 0, rows - 1 do
 		local z = startZ + (rows == 1 and spanZ / 2 or (spanZ * r / (rows - 1)))
-		for c = 0, perRow - 1 do
+		-- Le reste est réparti sur les rangées restantes puis centré : une dernière
+		-- rangée incomplète reste au milieu du terrain au lieu de coller à gauche.
+		local inRow = math.ceil((count - placed) / (rows - r))
+		for c = 0, inRow - 1 do
 			if placed >= count then break end
-			local x = field.origin.X + ((c + 0.5) / perRow - 0.5) * (field.width - 8)
+			local x = field.origin.X + ((c + 0.5) / inRow - 0.5) * (field.width - 8)
 			local fig = Instance.new("Part")
 			fig.Name = "Figure"
 			fig.Size = Vector3.new(2.4, 5, 2.4)

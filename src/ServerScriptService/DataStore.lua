@@ -2,6 +2,7 @@
 -- Sauvegarde/chargement des profils joueur. Tolérant aux erreurs (Studio sans API access).
 
 local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 
@@ -51,11 +52,33 @@ function DataModule.load(userId: number)
 	return data
 end
 
-function DataModule.save(userId: number, data)
+-- Anti « DataStore request was added to queue » : Roblox limite les écritures par
+-- clé (~1 toutes les 6 s) et met le surplus en file. On saute donc les sauvegardes
+-- trop rapprochées ET celles dont le contenu n'a pas bougé.
+local MIN_INTERVAL = 20
+local lastSaveAt: { [number]: number } = {}
+local lastPayload: { [number]: string } = {}
+
+function DataModule.save(userId: number, data, force: boolean?)
 	if not store then return end
-	pcall(function()
+	local payload = HttpService:JSONEncode(data)
+	if lastPayload[userId] == payload then return end
+	local now = os.clock()
+	if not force and (now - (lastSaveAt[userId] or -math.huge)) < MIN_INTERVAL then
+		return
+	end
+	lastSaveAt[userId] = now
+	local ok = pcall(function()
 		store:SetAsync("p_" .. userId, data)
 	end)
+	if ok then
+		lastPayload[userId] = payload
+	end
+end
+
+function DataModule.forget(userId: number)
+	lastSaveAt[userId] = nil
+	lastPayload[userId] = nil
 end
 
 return DataModule
