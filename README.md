@@ -55,8 +55,12 @@ des **renaissances** et grimpe au **classement mondial**.
 | **Vitesse Balle x2** | la balle part 2× plus vite |
 | **Grand Terrain** | fond du baby-foot 2× plus grand → but plus facile |
 
-> Les IDs de pass valent `0` dans `src/ReplicatedStorage/Config.lua` :
-> crée les Game Passes dans le Creator Hub et **remplace les `id = 0`** par les vrais.
+> Les IDs vivent dans un seul bloc, `Config.PassIds` en tête de
+> `src/ReplicatedStorage/Config.lua`. Ils ne peuvent pas être fournis à
+> l'avance : Roblox les attribue à la création et aucune API Open Cloud ne crée
+> de passe. Marche à suivre complète dans **[PASSES.md](PASSES.md)**.
+> Tant qu'un ID vaut `0`, la passe s'affiche « ⚙️ à configurer », n'est pas
+> vendue et n'est jamais accordée ; le serveur liste les manquantes au démarrage.
 
 ## Structure (Rojo)
 

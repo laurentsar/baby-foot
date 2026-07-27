@@ -725,4 +725,17 @@ task.spawn(function()
 	end
 end)
 
+-- Avertissement explicite : une passe sans ID n'est ni vendue ni accordée, et
+-- l'oubli ne se voit sinon qu'au moment où un joueur clique dessus.
+do
+	local missing = Config.unconfiguredPasses()
+	if #missing > 0 then
+		warn(string.format(
+			"[BabyFoot] %d game pass sans ID (non vendus) : %s — renseigne Config.PassIds, cf. PASSES.md",
+			#missing, table.concat(missing, ", ")))
+	else
+		print("[BabyFoot] Les 6 game passes sont configurés.")
+	end
+end
+
 print("[BabyFoot] Serveur prêt.")

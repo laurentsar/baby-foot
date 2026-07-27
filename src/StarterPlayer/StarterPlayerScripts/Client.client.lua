@@ -322,7 +322,11 @@ rebirthBtn.MouseButton1Click:Connect(function() rRebirth:FireServer() end)
 shopHeader("💎 GAME PASSES (Robux)", 9, Color3.fromRGB(180, 130, 255))
 local passOrder = 10
 for key, pass in Config.Passes do
-	local b = button(pass.label .. "  🟣", Color3.fromRGB(150, 110, 235), shopScroll)
+	-- Une passe sans ID ne peut pas être achetée : on l'affiche grisée plutôt
+	-- que de laisser cliquer sur un achat qui échoue.
+	local ready = pass.id ~= 0
+	local b = button(pass.label .. (if ready then "  🟣" else "  ⚙️ à configurer"),
+		if ready then Color3.fromRGB(150, 110, 235) else Color3.fromRGB(95, 95, 115), shopScroll)
 	b.Size = UDim2.new(1, 0, 0, 58); b.TextSize = 14; b.LayoutOrder = passOrder
 	b.MouseButton1Click:Connect(function() rBuyPass:FireServer(key) end)
 	passOrder += 1

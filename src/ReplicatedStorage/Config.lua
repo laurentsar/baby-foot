@@ -161,17 +161,51 @@ function Config.rebirthCost(rebirths: number): number
 end
 
 -------------------------------------------------------------------------------
--- GAME PASSES ROBUX
--- IMPORTANT : remplace les IDs 0 par les vrais IDs créés dans Roblox Creator Hub.
+-- ★★★ LES SEULES LIGNES À REMPLIR : LES IDS DES GAME PASSES ★★★
+--
+-- Crée les 6 passes dans le Creator Hub (Expérience → Associated Items →
+-- Passes → Create Pass), puis colle ici l'ID de chacun. Rien d'autre à changer :
+-- les prix, libellés et effets sont déjà câblés plus bas.
+--
+-- L'ID est le nombre dans l'URL de la passe :
+--   https://www.roblox.com/game-pass/ 1234567890 /VIP  →  1234567890
+--
+-- Ces IDs ne peuvent pas être générés à l'avance : Roblox les attribue à la
+-- création, et il n'existe pas d'API Open Cloud pour créer une passe. Voir
+-- PASSES.md pour la liste exacte à créer (noms, prix, descriptions).
+--
+-- Tant qu'un ID vaut 0, la passe est affichée « à configurer » et n'est ni
+-- vendue ni accordée — jamais d'achat dans le vide.
 -------------------------------------------------------------------------------
-Config.Passes = {
-	VIP          = { id = 0, price = 199, label = "VIP",              desc = "x2 argent + dés 30% moins chers + étiquette VIP au-dessus du nom" },
-	MoneyX2      = { id = 0, price = 149, label = "Argent x2",        desc = "Double tout l'argent gagné (cumulable avec VIP)" },
-	RebirthX2    = { id = 0, price = 249, label = "Renaissance x2",   desc = "Double le multiplicateur de renaissance" },
-	LuckyDice    = { id = 0, price = 299, label = "Dés Chanceux",     desc = "Bien moins de communs : les raretés sortent beaucoup plus souvent" },
-	BallSpeedX2  = { id = 0, price = 129, label = "Vitesse Balle x2", desc = "La balle part deux fois plus vite" },
-	BigField     = { id = 0, price = 179, label = "Grand Terrain",    desc = "Le fond du baby-foot est deux fois plus grand (but plus facile)" },
+Config.PassIds = {
+	VIP         = 0,
+	MoneyX2     = 0,
+	RebirthX2   = 0,
+	LuckyDice   = 0,
+	BallSpeedX2 = 0,
+	BigField    = 0,
 }
+
+Config.Passes = {
+	VIP          = { id = Config.PassIds.VIP,         price = 199, label = "VIP",              desc = "x2 argent + dés 30% moins chers + étiquette VIP au-dessus du nom" },
+	MoneyX2      = { id = Config.PassIds.MoneyX2,     price = 149, label = "Argent x2",        desc = "Double tout l'argent gagné (cumulable avec VIP)" },
+	RebirthX2    = { id = Config.PassIds.RebirthX2,   price = 249, label = "Renaissance x2",   desc = "Double le multiplicateur de renaissance" },
+	LuckyDice    = { id = Config.PassIds.LuckyDice,   price = 299, label = "Dés Chanceux",     desc = "Bien moins de communs : les raretés sortent beaucoup plus souvent" },
+	BallSpeedX2  = { id = Config.PassIds.BallSpeedX2, price = 129, label = "Vitesse Balle x2", desc = "La balle part deux fois plus vite" },
+	BigField     = { id = Config.PassIds.BigField,    price = 179, label = "Grand Terrain",    desc = "Le fond du baby-foot est deux fois plus grand (but plus facile)" },
+}
+
+-- Passes encore sans ID, pour l'avertissement au démarrage et l'affichage boutique.
+function Config.unconfiguredPasses(): { string }
+	local missing = {}
+	for key, pass in Config.Passes do
+		if pass.id == 0 then
+			table.insert(missing, pass.label .. " (" .. key .. ")")
+		end
+	end
+	table.sort(missing)
+	return missing
+end
 
 -------------------------------------------------------------------------------
 -- ENTRAÎNEMENT
