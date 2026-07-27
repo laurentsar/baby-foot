@@ -501,6 +501,18 @@ end)
 local function onPlayerAdded(player: Player)
 	local data = DataStore.load(player.UserId)
 
+	-- Première partie : on donne l'équipe de départ, la pire possible, mais déjà
+	-- posée sur les bases. Un terrain vide au premier lancement ne montrerait ni
+	-- les bases ni l'intérêt des dés.
+	if #data.cards == 0 then
+		for _ = 1, Config.StarterCards do
+			table.insert(data.cards, {
+				name = Config.randomPlayerName(rng),
+				rarity = Config.StarterRarity,
+			})
+		end
+	end
+
 	-- leaderstats
 	local ls = Instance.new("Folder")
 	ls.Name = "leaderstats"

@@ -51,6 +51,12 @@ Config.Bases = {
 Config.MaxSquad = 11        -- plafond dur : on ne place jamais plus de 11 joueurs
 Config.StartingSlots = 4    -- emplacements débloqués au départ
 
+-- Équipe de départ : autant de joueurs que d'emplacements, tous dans la pire
+-- rareté. Le terrain n'est jamais vide au premier lancement — on voit tout de
+-- suite ce qu'on tire, et les dés servent à REMPLACER ces joueurs médiocres.
+Config.StarterCards = Config.StartingSlots
+Config.StarterRarity = "commun"
+
 -- Coût du prochain emplacement (du 5e au 11e).
 Config.Slot = {
 	baseCost = 3000,
@@ -227,6 +233,8 @@ Config.Field = {
 	shootLine = -66,                 -- Z du point de tir (ton côté)
 	barrierOffset = 6,               -- ligne infranchissable, en avant du point de tir
 	barrierHeight = 16,              -- assez haut pour qu'on ne saute pas par-dessus
+	fenceHeight = 45,                -- murs invisibles du pourtour (anti-saut)
+	holeRadius = 7,                  -- trou d'entrée de la balle, début du terrain
 }
 
 Config.BigFieldMultiplier = 2       -- terrain x2 avec le pass Grand Terrain

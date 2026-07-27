@@ -82,6 +82,48 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 	fence.Transparency = 1
 	fence.CanCollide = true
 
+	-- TROU D'ENTRÉE DE LA BALLE, au début du baby-foot : c'est de là que part le
+	-- tir, comme la goulotte d'un vrai baby-foot. Purement visuel — la balle est
+	-- simulée en Anchored et ne dépend d'aucune collision.
+	local hole = part("TrouDeBalle", Vector3.new(F.holeRadius * 2, 1.6, F.holeRadius * 2),
+		CFrame.new(origin.X, origin.Y + 0.2, shootZ), Color3.fromRGB(10, 10, 14), root,
+		Enum.Material.SmoothPlastic)
+	hole.Shape = Enum.PartType.Cylinder
+	-- Un cylindre Roblox est couché sur X : on le redresse.
+	hole.CFrame = CFrame.new(origin.X, origin.Y + 0.2, shootZ) * CFrame.Angles(0, 0, math.rad(90))
+	hole.Size = Vector3.new(1.6, F.holeRadius * 2, F.holeRadius * 2)
+	hole.CanCollide = false
+
+	local ring = part("BordTrou", Vector3.new(1.2, F.holeRadius * 2 + 3, F.holeRadius * 2 + 3),
+		CFrame.new(origin.X, origin.Y + 0.15, shootZ) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
+	ring.Shape = Enum.PartType.Cylinder
+	ring.CanCollide = false
+
+	-- MURS INVISIBLES SUR TOUT LE POURTOUR : rien ne sort du terrain, personne
+	-- n'y entre en sautant par-dessus les rambardes en bois.
+	local fenceFolder = Instance.new("Folder")
+	fenceFolder.Name = "MursInvisibles"
+	fenceFolder.Parent = root
+
+	local function invisibleWall(name: string, size: Vector3, cf: CFrame)
+		local w = part(name, size, cf, Color3.fromRGB(255, 255, 255), fenceFolder)
+		w.Transparency = 1
+		w.CanCollide = true
+		return w
+	end
+
+	local fh = F.fenceHeight
+	local halfLen = length / 2 + F.goalDepth
+	invisibleWall("MurInvGauche", Vector3.new(1, fh, length + F.goalDepth * 2 + 20),
+		CFrame.new(origin.X - width / 2 - 2, origin.Y + fh / 2, origin.Z + F.goalDepth / 2))
+	invisibleWall("MurInvDroit", Vector3.new(1, fh, length + F.goalDepth * 2 + 20),
+		CFrame.new(origin.X + width / 2 + 2, origin.Y + fh / 2, origin.Z + F.goalDepth / 2))
+	invisibleWall("MurInvFond", Vector3.new(width + 8, fh, 1),
+		CFrame.new(origin.X, origin.Y + fh / 2, origin.Z + halfLen + 8))
+	invisibleWall("MurInvArriere", Vector3.new(width + 8, fh, 1),
+		CFrame.new(origin.X, origin.Y + fh / 2, shootZ - 10))
+
 	-- Dossier des figurines (peuplé dynamiquement par le moteur de tir)
 	local figures = Instance.new("Folder")
 	figures.Name = "Figures"
@@ -101,7 +143,106 @@ function FieldBuilder.build(fieldMult: number, originOverride: Vector3?)
 	}
 
 	FieldBuilder.buildBases(field)
+	FieldBuilder.buildDecor(field)
 	return field
+end
+
+-- DÉCOR : tribunes avec public, panneaux publicitaires, projecteurs et drapeaux
+-- de corner. Tout est procédural et ancré — aucun modèle à importer dans Studio.
+function FieldBuilder.buildDecor(field)
+	local origin, width, length = field.origin, field.width, field.length
+	local folder = Instance.new("Folder")
+	folder.Name = "Decor"
+	folder.Parent = field.root
+
+	local CROWD = {
+		Color3.fromRGB(235, 80, 70), Color3.fromRGB(60, 130, 235),
+		Color3.fromRGB(250, 205, 60), Color3.fromRGB(90, 200, 120),
+		Color3.fromRGB(240, 240, 245), Color3.fromRGB(180, 110, 235),
+	}
+
+	-- Tribunes : 3 gradins de plus en plus hauts de chaque côté, avec du public.
+	for _, side in { -1, 1 } do
+		for tier = 0, 2 do
+			local h = 4 + tier * 4
+			local x = origin.X + side * (width / 2 + 7 + tier * 7)
+			part("Gradin", Vector3.new(7, h, length + 20),
+				CFrame.new(x, origin.Y + h / 2, origin.Z), Color3.fromRGB(70, 74, 88),
+				folder, Enum.Material.Concrete)
+
+			local seats = 14
+			for i = 0, seats - 1 do
+				local z = origin.Z - (length + 12) / 2 + (i + 0.5) * (length + 12) / seats
+				local body = part("Spectateur", Vector3.new(2, 3, 2),
+					CFrame.new(x, origin.Y + h + 1.5, z),
+					CROWD[(i + tier * 2) % #CROWD + 1], folder)
+				body.CanCollide = false
+				local head = part("TeteSpectateur", Vector3.new(1.6, 1.6, 1.6),
+					CFrame.new(x, origin.Y + h + 3.8, z),
+					Color3.fromRGB(235, 200, 165), folder)
+				head.Shape = Enum.PartType.Ball
+				head.CanCollide = false
+			end
+		end
+	end
+
+	-- Panneaux publicitaires le long des rambardes, face au terrain.
+	local ADS = { "BABY-FOOT POWER", "⚽ POWER LEAGUE", "HALTÈRES PRO", "DÉS D'OR" }
+	for _, side in { -1, 1 } do
+		for i = 0, 3 do
+			local z = origin.Z - length / 2 + (i + 0.5) * length / 4
+			local board = part("Panneau", Vector3.new(1, 5, length / 4 - 6),
+				CFrame.new(origin.X + side * (width / 2 + 2.6), origin.Y + 3.5, z),
+				Color3.fromRGB(25, 28, 38), folder)
+			board.CanCollide = false
+			local sign = Instance.new("SurfaceGui")
+			sign.Face = if side < 0 then Enum.NormalId.Right else Enum.NormalId.Left
+			sign.CanvasSize = Vector2.new(600, 120)
+			sign.Parent = board
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.fromScale(1, 1)
+			lbl.BackgroundTransparency = 1
+			lbl.Text = ADS[i + 1]
+			lbl.Font = Enum.Font.GothamBlack
+			lbl.TextScaled = true
+			lbl.TextColor3 = Color3.fromRGB(255, 210, 60)
+			lbl.Parent = sign
+		end
+	end
+
+	-- Projecteurs aux quatre coins.
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local x = origin.X + sx * (width / 2 + 26)
+			local z = origin.Z + sz * (length / 2 + 12)
+			part("Mat", Vector3.new(2.5, 46, 2.5),
+				CFrame.new(x, origin.Y + 23, z), Color3.fromRGB(40, 43, 54), folder, Enum.Material.Metal)
+			local head = part("Projecteur", Vector3.new(12, 4, 3),
+				CFrame.new(x, origin.Y + 47, z), Color3.fromRGB(250, 250, 235), folder, Enum.Material.Neon)
+			head.CanCollide = false
+			local light = Instance.new("SpotLight")
+			light.Angle = 100
+			light.Brightness = 2.2
+			light.Range = 90
+			light.Face = Enum.NormalId.Bottom
+			light.Shadows = false  -- coûteux, et 4 projecteurs par plot
+			light.Parent = head
+		end
+	end
+
+	-- Drapeaux de corner, aux quatre angles du plateau.
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local x = origin.X + sx * (width / 2 - 2)
+			local z = origin.Z + sz * (length / 2 - 2)
+			local pole = part("MatCorner", Vector3.new(0.4, 8, 0.4),
+				CFrame.new(x, origin.Y + 4, z), Color3.fromRGB(240, 240, 240), folder)
+			pole.CanCollide = false
+			local flag = part("Drapeau", Vector3.new(0.2, 2.2, 3),
+				CFrame.new(x + sx * 1.6, origin.Y + 7, z), Color3.fromRGB(255, 90, 90), folder, Enum.Material.Fabric)
+			flag.CanCollide = false
+		end
+	end
 end
 
 -- Emplacements du terrain, dans l'ordre où ils se débloquent : base par base
