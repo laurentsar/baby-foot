@@ -47,8 +47,13 @@ local lastSubmitVal: { [number]: number } = {}
 -- total astronomique ferait echouer l'ecriture au lieu de classer le joueur.
 local MAX_SCORE = 2 ^ 53
 
+-- Joueurs effacés à leur demande : plus aucune soumission jusqu'à la fin de leur
+-- session, sinon l'écriture forcée du départ les remettrait au classement.
+local erased: { [number]: boolean } = {}
+
 function Leaderboard.submit(userId: number, totalEarned: number, force: boolean?)
 	if not ordered then return end
+	if erased[userId] then return end
 	if totalEarned ~= totalEarned then return end  -- NaN
 
 	local value = math.clamp(math.floor(totalEarned), 0, MAX_SCORE)
@@ -68,9 +73,26 @@ function Leaderboard.submit(userId: number, totalEarned: number, force: boolean?
 	end
 end
 
+-- Droit à l'oubli : retire le joueur du classement mondial.
+function Leaderboard.erase(userId: number): boolean
+	erased[userId] = true
+	lastSubmitVal[userId] = nil
+	if not ordered then return true end
+	for attempt = 1, 3 do
+		local ok = pcall(function()
+			ordered:RemoveAsync("u_" .. userId)
+		end)
+		if ok then return true end
+		task.wait(2 * attempt)
+	end
+	warn(string.format("[BabyFoot] Retrait du classement pour %d ECHOUE : a rejouer.", userId))
+	return false
+end
+
 function Leaderboard.forget(userId: number)
 	lastSubmitAt[userId] = nil
 	lastSubmitVal[userId] = nil
+	erased[userId] = nil
 end
 
 local function nameFor(userId: number): string

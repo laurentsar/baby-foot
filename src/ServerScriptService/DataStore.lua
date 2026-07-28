@@ -88,8 +88,14 @@ local MIN_INTERVAL = 20
 local lastSaveAt: { [number]: number } = {}
 local lastPayload: { [number]: string } = {}
 
+-- Joueurs dont les donnees ont ete effacees a leur demande (droit a l'oubli).
+-- Tant que la session en cours n'est pas terminee, toute ecriture est refusee :
+-- sinon la sauvegarde de sortie recreerait immediatement le profil efface.
+local erased: { [number]: boolean } = {}
+
 function DataModule.save(userId: number, data, force: boolean?)
 	if not store then return end
+	if erased[userId] then return end
 	-- Profil jamais lu correctement : on n'ecrit pas, on ne detruit rien.
 	if not loadedOk[userId] then return end
 	local payload = HttpService:JSONEncode(data)
@@ -107,10 +113,28 @@ function DataModule.save(userId: number, data, force: boolean?)
 	end
 end
 
+-- Droit a l'oubli : suppression definitive du profil. Idempotent — effacer une
+-- cle absente ne coute qu'une requete et ne provoque pas d'erreur.
+function DataModule.erase(userId: number): boolean
+	erased[userId] = true
+	lastPayload[userId] = nil
+	if not store then return true end
+	for attempt = 1, 3 do
+		local ok = pcall(function()
+			store:RemoveAsync("p_" .. userId)
+		end)
+		if ok then return true end
+		task.wait(2 * attempt)
+	end
+	warn(string.format("[BabyFoot] Effacement du profil %d ECHOUE : a rejouer.", userId))
+	return false
+end
+
 function DataModule.forget(userId: number)
 	lastSaveAt[userId] = nil
 	lastPayload[userId] = nil
 	loadedOk[userId] = nil
+	erased[userId] = nil
 end
 
 return DataModule

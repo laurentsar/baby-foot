@@ -15,6 +15,7 @@ local Server = script.Parent
 local FieldBuilder = require(Server.FieldBuilder)
 local DataStore = require(Server.DataStore)
 local Leaderboard = require(Server.Leaderboard)
+local Erasure = require(Server.Erasure)
 
 -- Remotes
 local rTrain = Remotes.get("Train")
@@ -29,6 +30,7 @@ local rShotResult = Remotes.get("ShotResult")
 local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
+local rErase = Remotes.get("EraseData")
 
 -- Tirage des dés : un seul générateur serveur, jamais le client.
 local rng = Random.new()
@@ -47,6 +49,7 @@ type Session = {
 	shootingUntil: number,      -- une seule balle en vol par joueur (verrou auto-expirant)
 	repopulatePending: boolean, -- replacement des figurines reporté après le tir
 	chargeStartAt: number?,     -- horodatage serveur de l'appui sur TIRER
+	eraseArmedUntil: number,    -- droit à l'oubli : fenêtre de confirmation
 	spawnPos: Vector3?,
 	props: { Instance }?,      -- décor du plot (entrée, gym) à détruire au départ
 	board: SurfaceGui?,        -- panneau de classement du parvis
@@ -607,6 +610,34 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passI
 end)
 
 -------------------------------------------------------------------------------
+-- DROIT À L'OUBLI : le joueur supprime lui-même ses données.
+-- Deux clics : le premier prévient de ce qui va disparaître, le second confirme
+-- dans la fenêtre impartie. C'est définitif, ça ne doit pas partir sur un clic.
+-------------------------------------------------------------------------------
+rErase.OnServerEvent:Connect(function(player)
+	local session = sessions[player]
+	if not session then return end
+	if not allow(player, "erase", 1) then return end
+
+	local now = os.clock()
+	if now >= session.eraseArmedUntil then
+		session.eraseArmedUntil = now + Config.ErasureConfirmWindow
+		rToast:FireClient(player, string.format(
+			"⚠️ Supprimer TOUTES tes donnees : argent, puissance, renaissances et"
+			.. " ta collection de %d joueurs. C'est definitif.\n"
+			.. "Reclique dans les %d s pour confirmer.",
+			#session.data.cards, Config.ErasureConfirmWindow))
+		return
+	end
+
+	session.eraseArmedUntil = 0
+	rToast:FireClient(player, "Suppression en cours...")
+	task.spawn(function()
+		Erasure.eraseAndKick(player)
+	end)
+end)
+
+-------------------------------------------------------------------------------
 -- Cycle de vie joueur.
 -------------------------------------------------------------------------------
 local function onPlayerAdded(player: Player)
@@ -651,6 +682,7 @@ local function onPlayerAdded(player: Player)
 		shootingUntil = 0,
 		repopulatePending = false,
 		chargeStartAt = nil,
+		eraseArmedUntil = 0,
 		spawnPos = nil,
 		props = nil,
 		board = nil,
@@ -740,6 +772,10 @@ do
 		+ Vector3.new(0, 1, Config.Field.shootLine - Config.Entrance.plazaOffset))
 	lobby.Parent = workspace
 end
+
+-- Demandes de suppression transmises par Roblox pour des joueurs absents
+-- (cf. Config.ErasureRequests). Traitées en tâche de fond, espacées.
+Erasure.processPendingRequests()
 
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(onPlayerRemoving)

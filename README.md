@@ -76,6 +76,7 @@ src/ServerScriptService/
   FieldBuilder.lua            # génération procédurale du terrain
   DataStore.lua               # sauvegarde des profils
   Leaderboard.lua             # classement mondial (OrderedDataStore)
+  Erasure.lua                 # droit à l'oubli (RGPD) : suppression des données
 src/StarterPlayer/StarterPlayerScripts/
   Client.client.lua           # UI : entraînement, visée caméra, jauge, dés, collection
 ```
@@ -95,6 +96,37 @@ Build one-shot d'un place :
 ```bash
 rojo build -o BabyFootPower.rbxlx
 ```
+
+## Données joueur & droit à l'oubli (RGPD)
+
+Le jeu écrit **deux clés** par joueur, et rien d'autre :
+
+| Où | Clé | Contenu |
+|---|---|---|
+| DataStore `BabyFootPower_v1` | `p_<userId>` | argent, puissance, haltère, balle, niveau de valeur, collection, renaissances, total gagné |
+| OrderedDataStore `BabyFootPower_v1_top` | `u_<userId>` | total gagné (classement mondial) |
+
+Aucun nom, e-mail, adresse IP ni journal de connexion. Le `DisplayName` affiché
+sur le panneau de classement est lu à la volée via l'API Roblox, jamais stocké.
+
+**Le joueur se sert lui-même** : boutique → section « 🔒 Mes données » → *Supprimer
+mes données*. Deux clics (le second confirme dans les 30 s), puis le serveur
+efface les deux clés et l'éjecte — sa session en mémoire recréerait sinon le
+profil à la sauvegarde de sortie.
+
+**Demande transmise par Roblox** pour un joueur qui ne revient pas (Creator
+Dashboard → e-mail *Right to Erasure*) : colle son UserId dans
+`Config.ErasureRequests`, publie, et le prochain démarrage de serveur s'en charge
+(traitement espacé de 7 s par joueur pour respecter les quotas DataStore). Le
+serveur imprime `[BabyFoot] Droit a l'oubli <id> : profil=efface classement=efface`
+— garde la ligne comme preuve de traitement, puis retire l'UserId de la liste.
+
+```lua
+Config.ErasureRequests = { 1234567890 }
+```
+
+L'opération est **idempotente** : rejouer une demande déjà traitée ne coûte que
+deux requêtes et n'échoue pas.
 
 ## Notes
 

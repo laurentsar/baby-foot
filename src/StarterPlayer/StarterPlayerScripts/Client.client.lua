@@ -25,6 +25,7 @@ local rShotResult = Remotes.get("ShotResult")
 local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
+local rErase = Remotes.get("EraseData")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -346,6 +347,27 @@ for key, pass in Config.Passes do
 	}, shopScroll)
 	passOrder += 1
 end
+
+-- Droit à l'oubli : accessible depuis le jeu, sans passer par un formulaire.
+-- En bas de la boutique, discret mais toujours atteignable. La confirmation est
+-- gérée par le serveur (deux clics), le client n'efface rien de lui-même.
+shopHeader("🔒 MES DONNÉES", passOrder, Color3.fromRGB(180, 180, 200))
+passOrder += 1
+local eraseBtn = button("Supprimer mes données", Color3.fromRGB(150, 60, 60), shopScroll)
+eraseBtn.Size = UDim2.new(1, 0, 0, 44)
+eraseBtn.TextSize = 14
+eraseBtn.LayoutOrder = passOrder
+eraseBtn.MouseButton1Click:Connect(function() rErase:FireServer() end)
+passOrder += 1
+make("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1,
+	Text = "Efface definitivement ta progression (argent, puissance, renaissances,"
+		.. " collection) et te retire du classement mondial.",
+	Font = Enum.Font.Gotham, TextWrapped = true, TextSize = 12,
+	TextColor3 = Color3.fromRGB(170, 170, 190),
+	TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = passOrder,
+}, shopScroll)
+passOrder += 1
 
 -------------------------------------------------------------------------------
 -- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.

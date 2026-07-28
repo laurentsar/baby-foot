@@ -208,6 +208,26 @@ function Config.unconfiguredPasses(): { string }
 end
 
 -------------------------------------------------------------------------------
+-- DROIT À L'OUBLI (RGPD).
+--
+-- Le jeu n'enregistre que l'état de partie, sous deux clés : p_<userId> dans le
+-- DataStore et u_<userId> dans le classement. Aucun nom, e-mail ni adresse IP.
+--
+-- Quand Roblox transmet une demande de suppression (Creator Dashboard → e-mail
+-- « Right to Erasure ») pour un joueur qui ne revient pas, colle son UserId ici :
+-- le prochain démarrage de serveur efface ses données, puis tu peux retirer la
+-- ligne. Un joueur en jeu, lui, se sert tout seul depuis la boutique.
+--
+--   Config.ErasureRequests = { 1234567890, 987654321 }
+-------------------------------------------------------------------------------
+Config.ErasureRequests = {} :: { number }
+
+-- Délai pendant lequel une demande de suppression reste « armée » : le premier
+-- clic prévient, le second dans cette fenêtre exécute. Une suppression est
+-- définitive, elle ne doit pas partir sur un clic malheureux.
+Config.ErasureConfirmWindow = 30
+
+-------------------------------------------------------------------------------
 -- ENTRAÎNEMENT
 -------------------------------------------------------------------------------
 Config.Train = {

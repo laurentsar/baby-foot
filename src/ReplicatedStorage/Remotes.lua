@@ -11,6 +11,7 @@ local EVENT_NAMES = {
 	"BuyUpgrade",   -- client -> serveur : {kind = "dumbbell"|"ball"|"slot"|"value"}
 	"Rebirth",      -- client -> serveur : demande de renaissance
 	"BuyPass",      -- client -> serveur : ouvre la boutique Robux d'un pass
+	"EraseData",    -- client -> serveur : droit à l'oubli (2 clics pour confirmer)
 	"RollDice",     -- client -> serveur : lance les dés pour recruter un joueur
 	"StatsUpdate",  -- serveur -> client : table d'état complète
 	"ShotResult",   -- serveur -> client : {hits, money, scored, tier}
