@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F358C"/>
+      <stop offset="0.5" stop-color="#0D1533"/>
+      <stop offset="1" stop-color="#070B1C"/>
+    </linearGradient>
+    <linearGradient id="pitch" x1="0" y1="0" x2="0" y2="1">
+      
+      <stop offset="0" stop-color="#1E7A46"/>
+      <stop offset="1" stop-color="#0C3A21"/>
+    </linearGradient>
+    <linearGradient id="rod" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F2F5FA"/>
+      <stop offset="0.45" stop-color="#AFB8CC"/>
+      <stop offset="1" stop-color="#5E6880"/>
+    </linearGradient>
+    <linearGradient id="jersey" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A3EAE"/>
+      <stop offset="1" stop-color="#101A48"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE886"/>
+      <stop offset="1" stop-color="#EFA315"/>
+    </linearGradient>
+    <radialGradient id="ballGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.45" stop-color="#8FE9FF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#8FE9FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ballBody" cx="0.36" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.6" stop-color="#E8EEF8"/>
+      <stop offset="1" stop-color="#AFBBD0"/>
+    </radialGradient>
+    <radialGradient id="spot" cx="0.5" cy="0" r="1">
+      <stop offset="0" stop-color="#9FD8FF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#9FD8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.45" r="0.78">
+      <stop offset="0.5" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.6"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <path d="M1180 0 L1520 0 L1360 620 L1080 620 Z" fill="url(#spot)"/>
+
+  <!-- terrain -->
+  <path d="M0 640 L1920 640 L1920 1080 L0 1080 Z" fill="url(#pitch)"/>
+  <path d="M0 640 L1920 640 L1920 662 L0 662 Z" fill="#2FA05C" opacity="0.5"/>
+  <g stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="8">
+    <path d="M420 1080 L900 650"/>
+    <path d="M1500 1080 L1020 650"/>
+  </g>
+  <ellipse cx="960" cy="662" rx="300" ry="46" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="8"/>
+
+  <!-- barre + figurines -->
+  <rect x="-20" y="392" width="1960" height="42" rx="21" fill="url(#rod)"/>
+  <rect x="-20" y="398" width="1960" height="11" rx="5" fill="#FFFFFF" opacity="0.5"/>
+
+  <g opacity="0.6">
+    <g transform="translate(1620,434) scale(0.8)">
+      <rect x="-52" y="0" width="104" height="150" rx="26" fill="url(#jersey)"/>
+      <rect x="-52" y="52" width="104" height="26" fill="#D62630"/>
+      <circle cx="0" cy="-42" r="46" fill="#F2C79A"/>
+      <rect x="-52" y="150" width="44" height="86" rx="18" fill="#0C1234"/>
+      <rect x="8" y="150" width="44" height="86" rx="18" fill="#0C1234"/>
+    </g>
+  </g>
+
+  <!-- figurine principale -->
+  <g transform="translate(1300,428)" stroke="#070B1C" stroke-width="7" stroke-linejoin="round">
+    <ellipse cx="0" cy="470" rx="160" ry="30" fill="#000000" opacity="0.4" stroke="none"/>
+    <rect x="-96" y="272" width="74" height="160" rx="30" fill="#0C1234"/>
+    <rect x="22" y="272" width="74" height="160" rx="30" fill="#0C1234"/>
+    <rect x="-86" y="0" width="172" height="280" rx="44" fill="url(#jersey)"/>
+    <g stroke="none">
+      <rect x="-83" y="98" width="166" height="48" fill="#D62630"/>
+      <rect x="-83" y="87" width="166" height="11" fill="#F0F0F5"/>
+      <rect x="-83" y="146" width="166" height="11" fill="#F0F0F5"/>
+    </g>
+    <circle cx="0" cy="-70" r="76" fill="#F2C79A"/>
+  </g>
+
+  <!-- trainee + balle -->
+  <g>
+    <path d="M760 866 L1050 866 L1080 916 L724 916 Z" fill="#8FE9FF" opacity="0.30"/>
+    <path d="M900 802 L1100 802 L1122 840 L874 840 Z" fill="#8FE9FF" opacity="0.15"/>
+    <circle cx="1128" cy="884" r="158" fill="url(#ballGlow)"/>
+    <circle cx="1128" cy="884" r="82" fill="url(#ballBody)"/>
+    <path d="M1128 820 l41 30 -16 48 -51 0 -16 -48 z" fill="#16203E"/>
+    <path d="M1128 806 l0 14 M1072 852 l-27 -11 M1184 852 l27 -11 M1097 916 l-16 30 M1159 916 l16 30"
+          stroke="#16203E" stroke-width="12" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+
+  <!-- texte -->
+  <g font-family="DejaVu Sans" font-weight="bold">
+    <text x="120" y="290" font-size="122" fill="#FFFFFF" stroke="#0A0F26" stroke-width="18"
+          paint-order="stroke" letter-spacing="2">BABY-FOOT</text>
+    <text x="120" y="438" font-size="164" fill="url(#gold)" stroke="#3A1F00" stroke-width="20"
+          paint-order="stroke" letter-spacing="6">POWER</text>
+    <text x="124" y="520" font-size="52" fill="#9FD8FF" stroke="#08122E" stroke-width="9"
+          paint-order="stroke">MUSCLE-TOI &amp; MARQUE !</text>
+
+    <g font-size="46" fill="#FFFFFF" stroke="#08122E" stroke-width="8" paint-order="stroke">
+      <text x="124" y="660">SOULÈVE DES HALTÈRES → PUISSANCE</text>
+      <text x="124" y="740">CHARGE TON TIR, VISE LE BUT → x3</text>
+      <text x="124" y="820">LANCE LES DÉS → JOUEURS MYTHIQUES</text>
+    </g>
+    <g font-size="44" fill="#FFE886" stroke="#3A1F00" stroke-width="8" paint-order="stroke">
+      <text x="124" y="930">CLASSEMENT MONDIAL — 11 JOUEURS — RENAISSANCES</text>
+    </g>
+  </g>
+</svg>

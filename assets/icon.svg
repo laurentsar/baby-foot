@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2E7A"/>
+      <stop offset="0.55" stop-color="#0D1533"/>
+      <stop offset="1" stop-color="#070B1C"/>
+    </linearGradient>
+    <linearGradient id="pitch" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E7A46"/>
+      <stop offset="1" stop-color="#0E4527"/>
+    </linearGradient>
+    <linearGradient id="rod" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F2F5FA"/>
+      <stop offset="0.45" stop-color="#AFB8CC"/>
+      <stop offset="1" stop-color="#5E6880"/>
+    </linearGradient>
+    <linearGradient id="jersey" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#25379B"/>
+      <stop offset="1" stop-color="#101A48"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE27A"/>
+      <stop offset="1" stop-color="#F0A81E"/>
+    </linearGradient>
+    <radialGradient id="ballGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#8FE9FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8FE9FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ballBody" cx="0.36" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.6" stop-color="#E8EEF8"/>
+      <stop offset="1" stop-color="#AFBBD0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#sky)"/>
+
+  <!-- terrain -->
+  <path d="M0 318 L512 318 L512 512 L0 512 Z" fill="url(#pitch)"/>
+  <path d="M0 318 L512 318 L512 330 L0 330 Z" fill="#2FA05C" opacity="0.55"/>
+  <!-- lignes de fuite -->
+  <g stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="5">
+    <path d="M120 512 L226 322"/>
+    <path d="M392 512 L286 322"/>
+    <path d="M256 512 L256 322" stroke-opacity="0.1"/>
+  </g>
+  <ellipse cx="256" cy="330" rx="86" ry="18" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="5"/>
+
+  <!-- barre du baby-foot -->
+  <rect x="-10" y="176" width="532" height="26" rx="13" fill="url(#rod)"/>
+  <rect x="-10" y="180" width="532" height="7" rx="3.5" fill="#FFFFFF" opacity="0.55"/>
+
+  <!-- figurines laterales -->
+  <g opacity="0.72">
+    <g transform="translate(78,202) scale(0.62)">
+      <rect x="-30" y="0" width="60" height="96" rx="16" fill="url(#jersey)"/>
+      <rect x="-30" y="34" width="60" height="16" fill="#D62630"/>
+      <circle cx="0" cy="-24" r="27" fill="#F2C79A"/>
+      <rect x="-30" y="96" width="24" height="54" rx="10" fill="#0C1234"/>
+      <rect x="6" y="96" width="24" height="54" rx="10" fill="#0C1234"/>
+    </g>
+    <g transform="translate(434,202) scale(0.62)">
+      <rect x="-30" y="0" width="60" height="96" rx="16" fill="url(#jersey)"/>
+      <rect x="-30" y="34" width="60" height="16" fill="#D62630"/>
+      <circle cx="0" cy="-24" r="27" fill="#F2C79A"/>
+      <rect x="-30" y="96" width="24" height="54" rx="10" fill="#0C1234"/>
+      <rect x="6" y="96" width="24" height="54" rx="10" fill="#0C1234"/>
+    </g>
+  </g>
+
+  <!-- figurine centrale -->
+  <g transform="translate(256,196)" stroke="#070B1C" stroke-width="5" stroke-linejoin="round">
+    <ellipse cx="0" cy="252" rx="88" ry="17" fill="#000000" opacity="0.4" stroke="none"/>
+    <rect x="-52" y="146" width="40" height="86" rx="17" fill="#0C1234"/>
+    <rect x="12" y="146" width="40" height="86" rx="17" fill="#0C1234"/>
+    <rect x="-46" y="0" width="92" height="150" rx="24" fill="url(#jersey)"/>
+    <g stroke="none">
+      <rect x="-44" y="52" width="88" height="26" fill="#D62630"/>
+      <rect x="-44" y="46" width="88" height="6" fill="#F0F0F5"/>
+      <rect x="-44" y="78" width="88" height="6" fill="#F0F0F5"/>
+    </g>
+    <circle cx="0" cy="-38" r="41" fill="#F2C79A"/>
+    <path d="M-40 -46 a40 40 0 0 1 80 0 a40 26 0 0 0 -80 0 z" fill="#2A1A10"/>
+  </g>
+
+  <!-- trainee + balle -->
+  <g>
+    <path d="M28 372 L150 372 L166 396 L12 396 Z" fill="#8FE9FF" opacity="0.35"/>
+    <path d="M92 340 L188 340 L200 358 L80 358 Z" fill="#8FE9FF" opacity="0.18"/>
+    <circle cx="188" cy="392" r="88" fill="url(#ballGlow)"/>
+    <circle cx="188" cy="392" r="46" fill="url(#ballBody)"/>
+    <path d="M188 356 l23 17 -9 27 -29 0 -9 -27 z" fill="#16203E"/>
+    <path d="M188 348 l0 8 M157 372 l-15 -6 M219 372 l15 -6 M171 408 l-9 17 M205 408 l9 17"
+          stroke="#16203E" stroke-width="6" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <rect width="512" height="512" fill="url(#vignette)"/>
+
+  <!-- titre -->
+  <g font-family="DejaVu Sans" font-weight="bold" text-anchor="middle">
+    <text x="256" y="76" font-size="52" fill="#FFFFFF" stroke="#0A0F26" stroke-width="10"
+          paint-order="stroke" letter-spacing="1">BABY-FOOT</text>
+    <text x="256" y="140" font-size="66" fill="url(#gold)" stroke="#3A1F00" stroke-width="11"
+          paint-order="stroke" letter-spacing="3">POWER</text>
+  </g>
+</svg>
