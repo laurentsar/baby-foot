@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B2C6E"/>
+      <stop offset="1" stop-color="#070B1C"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE886"/>
+      <stop offset="1" stop-color="#EFA315"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F6F9FF"/>
+      <stop offset="1" stop-color="#9AA6BF"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#FFD86B" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFD86B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.42" r="0.78">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="215" r="200" fill="url(#halo)"/>
+<polygon points="256.0,60.0 294.8,156.6 398.7,163.6 318.8,230.4 344.2,331.4 256.0,276.0 167.8,331.4 193.2,230.4 113.3,163.6 217.2,156.6" fill="url(#gold)" stroke="#3A1F00" stroke-width="10" stroke-linejoin="round"/>
+    <text x="256" y="238" font-family="DejaVu Sans" font-weight="bold" font-size="86"
+          text-anchor="middle" fill="#3A1F00">x2</text>
+  <rect width="512" height="512" fill="url(#vig)"/>
+  <g font-family="DejaVu Sans" font-weight="bold" text-anchor="middle">
+    <text x="256" y="452" font-size="104" fill="url(#gold)" stroke="#08122E" stroke-width="11"
+          paint-order="stroke" letter-spacing="1">VIP</text>
+  </g>
+</svg>

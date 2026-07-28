@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#123E63"/>
+      <stop offset="1" stop-color="#070B1C"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE886"/>
+      <stop offset="1" stop-color="#EFA315"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F6F9FF"/>
+      <stop offset="1" stop-color="#9AA6BF"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#8FE9FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8FE9FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.42" r="0.78">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="215" r="200" fill="url(#halo)"/>
+<path d="M40 172 L210 172 L232 208 L18 208 Z" fill="#8FE9FF" opacity="0.45"/>
+    <path d="M70 232 L200 232 L218 262 L52 262 Z" fill="#8FE9FF" opacity="0.28"/>
+    <circle cx="312" cy="212" r="118" fill="#FFFFFF" stroke="#16203E" stroke-width="10"/>
+    <path d="M312 122 l58 42 -22 68 -72 0 -22 -68 z" fill="#16203E"/>
+    <path d="M312 102 l0 20 M234 184 l-38 -14 M390 184 l38 -14 M268 272 l-22 42 M356 272 l22 42"
+          stroke="#16203E" stroke-width="15" stroke-linecap="round" fill="none"/>
+    <text x="418" y="340" font-family="DejaVu Sans" font-weight="bold" font-size="92"
+          text-anchor="middle" fill="#FFFFFF" stroke="#08122E" stroke-width="12"
+          paint-order="stroke">x2</text>
+  <rect width="512" height="512" fill="url(#vig)"/>
+  <g font-family="DejaVu Sans" font-weight="bold" text-anchor="middle">
+    <text x="256" y="452" font-size="48" fill="#FFFFFF" stroke="#08122E" stroke-width="11"
+          paint-order="stroke" letter-spacing="1">VITESSE BALLE</text>
+  </g>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26356F"/>
+      <stop offset="1" stop-color="#070B1C"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE886"/>
+      <stop offset="1" stop-color="#EFA315"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F6F9FF"/>
+      <stop offset="1" stop-color="#9AA6BF"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#9FD8FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#9FD8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.42" r="0.78">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.5"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="215" r="200" fill="url(#halo)"/>
+<g transform="rotate(-14 190 220)"><rect x="118" y="148" width="150" height="150" rx="30" fill="url(#silver)" stroke="#16203E" stroke-width="10"/><circle cx="156" cy="186" r="14" fill="#16203E"/><circle cx="193" cy="223" r="14" fill="#16203E"/><circle cx="230" cy="260" r="14" fill="#16203E"/></g><g transform="rotate(12 330 250)"><rect x="256" y="180" width="150" height="150" rx="30" fill="url(#gold)" stroke="#3A1F00" stroke-width="10"/><circle cx="294" cy="218" r="14" fill="#16203E"/><circle cx="368" cy="218" r="14" fill="#16203E"/><circle cx="294" cy="255" r="14" fill="#16203E"/><circle cx="368" cy="255" r="14" fill="#16203E"/><circle cx="294" cy="292" r="14" fill="#16203E"/><circle cx="368" cy="292" r="14" fill="#16203E"/></g>
+  <rect width="512" height="512" fill="url(#vig)"/>
+  <g font-family="DejaVu Sans" font-weight="bold" text-anchor="middle">
+    <text x="256" y="452" font-size="48" fill="#FFFFFF" stroke="#08122E" stroke-width="11"
+          paint-order="stroke" letter-spacing="1">DES CHANCEUX</text>
+  </g>
+</svg>
