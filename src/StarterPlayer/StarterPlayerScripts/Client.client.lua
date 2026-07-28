@@ -14,6 +14,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local rTrain = Remotes.get("Train")
+local rChargeStart = Remotes.get("ChargeStart")
 local rShoot = Remotes.get("Shoot")
 local rBuy = Remotes.get("BuyUpgrade")
 local rRebirth = Remotes.get("Rebirth")
@@ -206,6 +207,9 @@ shootBtn.MouseButton1Down:Connect(function()
 	charging = true
 	charge = 0
 	chargeUp = true
+	-- Le serveur horodate l'appui : c'est ce qui lui permet de vérifier que la
+	-- charge annoncée au moment du tir correspond bien à la durée de maintien.
+	rChargeStart:FireServer()
 end)
 
 local function fireShot()
@@ -227,11 +231,14 @@ RunService.RenderStepped:Connect(function(dt)
 	updateAim()
 	if charging then
 		-- va-et-vient de la jauge : relâche au bon moment pour un tir max.
+		-- Même vitesse que Config.chargeAt côté serveur : les deux jauges doivent
+		-- rester identiques, sinon le contrôle anti-triche rejetterait des tirs
+		-- honnêtes.
 		if chargeUp then
-			charge += dt * 1.4
+			charge += dt * Config.ChargeRate
 			if charge >= 1 then charge = 1; chargeUp = false end
 		else
-			charge -= dt * 1.4
+			charge -= dt * Config.ChargeRate
 			if charge <= 0 then charge = 0; chargeUp = true end
 		end
 		local tier = Config.chargeTier(charge)

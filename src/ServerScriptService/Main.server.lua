@@ -18,6 +18,7 @@ local Leaderboard = require(Server.Leaderboard)
 
 -- Remotes
 local rTrain = Remotes.get("Train")
+local rChargeStart = Remotes.get("ChargeStart")
 local rShoot = Remotes.get("Shoot")
 local rBuy = Remotes.get("BuyUpgrade")
 local rRebirth = Remotes.get("Rebirth")
@@ -43,6 +44,9 @@ type Session = {
 	lastTrain: number,
 	lastShot: number,
 	lastRoll: number,
+	shootingUntil: number,      -- une seule balle en vol par joueur (verrou auto-expirant)
+	repopulatePending: boolean, -- replacement des figurines reporté après le tir
+	chargeStartAt: number?,     -- horodatage serveur de l'appui sur TIRER
 	spawnPos: Vector3?,
 	props: { Instance }?,      -- décor du plot (entrée, gym) à détruire au départ
 	board: SurfaceGui?,        -- panneau de classement du parvis
@@ -170,7 +174,16 @@ end
 -------------------------------------------------------------------------------
 -- Terrain : repose l'équipe sur les bases (11 emplacements au maximum).
 -------------------------------------------------------------------------------
+-- Repose les figurines. Jamais pendant qu'une balle est en vol : placeSquad fait
+-- un ClearAllChildren puis recrée les figurines, ce qui rearmait des cibles
+-- neuves sous une balle déjà partie (un lancer de dés en plein tir suffisait à
+-- doubler les touches). Dans ce cas on reporte à la fin du tir.
 local function repopulate(session: Session)
+	if os.clock() < session.shootingUntil then
+		session.repopulatePending = true
+		return
+	end
+	session.repopulatePending = false
 	FieldBuilder.placeSquad(session.field, squadOf(session), unlockedSlots(session))
 end
 
@@ -226,13 +239,59 @@ local function nameTagBadge(player: Player)
 	lbl.Parent = bb
 end
 
+-------------------------------------------------------------------------------
+-- LIMITEUR DE DÉBIT DES REMOTES.
+--
+-- Un RemoteEvent sans limite est le vecteur classique de saturation d'un serveur
+-- Roblox : un client modifié peut en émettre des milliers par seconde, et chaque
+-- appel ici reconstruit une table de stats renvoyée au client. Le tricheur n'y
+-- gagne rien, mais il fait ramer le serveur POUR TOUT LE MONDE. Les remotes déjà
+-- protégés par leur propre cooldown métier (Train, Shoot, RollDice) ne repassent
+-- pas par ici.
+-------------------------------------------------------------------------------
+local rateBuckets: { [Player]: { [string]: number } } = {}
+
+local function allow(player: Player, key: string, minInterval: number): boolean
+	local bucket = rateBuckets[player]
+	if not bucket then
+		bucket = {}
+		rateBuckets[player] = bucket
+	end
+	local now = os.clock()
+	if now - (bucket[key] or -math.huge) < minInterval then
+		return false
+	end
+	bucket[key] = now
+	return true
+end
+
+-- Début d'appui sur TIRER : le serveur horodate lui-même, c'est ce qui rend la
+-- jauge de charge vérifiable (cf. rShoot).
+rChargeStart.OnServerEvent:Connect(function(player)
+	local session = sessions[player]
+	if not session then return end
+	if not allow(player, "chargeStart", 0.10) then return end
+	session.chargeStartAt = os.clock()
+end)
+
 rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(angleDeg) ~= "number" or typeof(chargePct) ~= "number" then return end
+	-- NaN passe au travers de math.clamp : on l'élimine avant tout calcul.
+	if angleDeg ~= angleDeg or chargePct ~= chargePct then return end
 	local now = os.clock()
 	if now - session.lastShot < Config.Shot.cooldown then return end
+	-- Une seule balle en vol par joueur. Sans ce verrou, le cooldown (0,3 s)
+	-- étant bien plus court que la durée de vie d'une balle (6 s), un joueur
+	-- pouvait avoir ~20 simulations en parallèle : elles se partageaient les
+	-- mêmes figurines et comptaient plusieurs fois les mêmes touches.
+	-- Verrou horodate plutot que booleen : si la simulation s'interrompt sur une
+	-- erreur, le verrou expire tout seul au lieu d'empecher le joueur de tirer
+	-- pour le reste de la partie.
+	if now < session.shootingUntil then return end
 	session.lastShot = now
+	session.shootingUntil = now + Config.Shot.ballLifetime + 1
 
 	local field = session.field
 	local S = Config.Shot
@@ -240,6 +299,21 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	-- des bornes (un client modifié ne peut pas tirer à 180°).
 	angleDeg = math.clamp(angleDeg, -S.maxAngle, S.maxAngle)
 	chargePct = math.clamp(chargePct, 0, 1)
+
+	-- La jauge de charge est un mini-jeu d'adresse : sans contrôle, un client
+	-- modifié annonce 1.0 à chaque tir et décroche le palier maximal en
+	-- permanence. Le serveur recalcule la charge attendue depuis la durée
+	-- d'appui qu'il a lui-même horodatée, et refuse un écart trop grand.
+	if session.chargeStartAt then
+		local expected = Config.chargeAt(now - session.chargeStartAt)
+		if math.abs(chargePct - expected) > Config.ChargeTolerance then
+			chargePct = expected
+		end
+		session.chargeStartAt = nil
+	else
+		-- Tir sans appui préalable : client non conforme, palier haut refusé.
+		chargePct = math.min(chargePct, Config.ChargeNoPressCap)
+	end
 
 	-- Vitesse = base + puissance, modulée par le palier de charge, x2 si pass vitesse.
 	local tier = Config.chargeTier(chargePct)
@@ -305,7 +379,10 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 						best = { mult = mult, name = rarete }
 					end
 					fig.Color = Color3.fromRGB(255, 220, 60)
-					task.delay(0, function() fig:Destroy() end)
+					-- Destruction immédiate : un task.delay laissait la figurine
+					-- une frame de plus dans le dossier, le temps qu'une autre
+					-- balle la compte elle aussi.
+					fig:Destroy()
 				end
 			end
 		end
@@ -331,6 +408,13 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	task.delay(0.15, function() ball:Destroy() end)
 
+	-- Le joueur peut être parti pendant les 6 s de vol : sa session est alors
+	-- déjà sauvegardée et son terrain détruit. On ne crédite pas un fantôme.
+	if sessions[player] ~= session then
+		session.shootingUntil = 0
+		return
+	end
+
 	-- Calcul du gain : chaque joueur touché rapporte selon SA rareté, d'où
 	-- hitValue (somme des multiplicateurs) plutôt qu'un simple nombre de touches.
 	local perHit = Config.playerValueAt(session.data.valueLevel)
@@ -354,12 +438,14 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 		best = best and best.name or nil,
 	})
 
-	-- Respawn des cibles après le tir.
+	-- Respawn des cibles après le tir. Le verrou n'est relâché qu'une fois les
+	-- figurines reposées : sinon le tir suivant partait sur un terrain vide.
 	task.delay(0.6, function()
-		if sessions[player] then repopulate(session) end
+		session.shootingUntil = 0
+		if sessions[player] == session then repopulate(session) end
 	end)
 
-	-- Soumet au classement (throttle léger).
+	-- Soumet au classement (throttlé côté Leaderboard : ~1 écriture/min/joueur).
 	Leaderboard.submit(player.UserId, session.data.totalEarned)
 end)
 
@@ -369,6 +455,8 @@ end)
 rBuy.OnServerEvent:Connect(function(player, kind)
 	local session = sessions[player]
 	if not session then return end
+	if typeof(kind) ~= "string" then return end
+	if not allow(player, "buy", 0.15) then return end
 	local d = session.data
 
 	if kind == "dumbbell" then
@@ -461,6 +549,7 @@ end)
 rRebirth.OnServerEvent:Connect(function(player)
 	local session = sessions[player]
 	if not session then return end
+	if not allow(player, "rebirth", 0.5) then return end
 	local d = session.data
 	local cost = Config.rebirthCost(d.rebirths)
 	if d.money < cost then
@@ -488,6 +577,10 @@ end)
 -- GAME PASSES : ouvre la boutique Robux.
 -------------------------------------------------------------------------------
 rBuyPass.OnServerEvent:Connect(function(player, passKey)
+	if typeof(passKey) ~= "string" then return end
+	-- PromptGamePassPurchase ouvre une fenêtre Robux : sans limite, un client
+	-- modifié pourrait la rouvrir en boucle chez lui.
+	if not allow(player, "buyPass", 1) then return end
 	local pass = Config.Passes[passKey]
 	if not pass then return end
 	if pass.id == 0 then
@@ -555,6 +648,9 @@ local function onPlayerAdded(player: Player)
 		lastTrain = 0,
 		lastShot = 0,
 		lastRoll = 0,
+		shootingUntil = 0,
+		repopulatePending = false,
+		chargeStartAt = nil,
 		spawnPos = nil,
 		props = nil,
 		board = nil,
@@ -599,9 +695,10 @@ end
 local function onPlayerRemoving(player: Player)
 	local session = sessions[player]
 	if not session then return end
-	Leaderboard.submit(player.UserId, session.data.totalEarned)
-	DataStore.save(player.UserId, session.data, true)  -- départ : on force
+	Leaderboard.submit(player.UserId, session.data.totalEarned, true)  -- départ : on force
+	DataStore.save(player.UserId, session.data, true)
 	DataStore.forget(player.UserId)
+	Leaderboard.forget(player.UserId)
 	if session.field and session.field.root then
 		session.field.root:Destroy()
 	end
@@ -623,6 +720,9 @@ local function onPlayerRemoving(player: Player)
 	table.insert(freeSlots, session.slot)
 
 	sessions[player] = nil
+	-- La table est indexée par l'instance Player : sans ce nettoyage, chaque
+	-- joueur parti reste référencé pour la durée de vie du serveur.
+	rateBuckets[player] = nil
 end
 
 -- Point d'apparition par défaut de Roblox, hors plot : un plot est détruit quand

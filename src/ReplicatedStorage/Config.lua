@@ -245,6 +245,22 @@ Config.ChargeTiers = {
 	{ upTo = 1.01, label = "TRÈS BIEN", speedMult = 1.30, color = Color3.fromRGB(20, 130, 55)   },
 }
 
+-- Vitesse de va-et-vient de la jauge de charge, en unites de charge par seconde.
+-- Partagee client/serveur : le client anime la jauge avec, le serveur recalcule
+-- la charge attendue a partir de la duree d'appui et refuse une charge qui ne
+-- correspond pas (sinon un client modifie envoie 1.0 a chaque tir).
+Config.ChargeRate = 1.4
+Config.ChargeTolerance = 0.25   -- marge de latence reseau
+-- Charge maximale accordee a un tir sans appui prealable (client non conforme).
+Config.ChargeNoPressCap = 0.70
+
+-- Position de la jauge apres `elapsed` secondes d'appui : triangle 0 -> 1 -> 0.
+function Config.chargeAt(elapsed: number): number
+	if elapsed ~= elapsed or elapsed < 0 then return 0 end
+	local phase = (elapsed * Config.ChargeRate) % 2
+	return if phase <= 1 then phase else 2 - phase
+end
+
 function Config.chargeTier(charge: number)
 	local c = math.clamp(charge, 0, 1)
 	for _, tier in Config.ChargeTiers do

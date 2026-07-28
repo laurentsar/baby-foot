@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
 	"Train",        -- client -> serveur : une rep d'entraînement
+	"ChargeStart",  -- client -> serveur : début d'appui sur TIRER (horodaté serveur)
 	"Shoot",        -- client -> serveur : tir (angle, chargePct)
 	"BuyUpgrade",   -- client -> serveur : {kind = "dumbbell"|"ball"|"slot"|"value"}
 	"Rebirth",      -- client -> serveur : demande de renaissance

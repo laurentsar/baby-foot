@@ -35,11 +35,42 @@ function Leaderboard.detach(surfaceGui: SurfaceGui)
 	end
 end
 
-function Leaderboard.submit(userId: number, totalEarned: number)
+-- Roblox limite les ecritures OrderedDataStore par cle (~1 / 6 s) : un tir toutes
+-- les 0,3 s par joueur saturait la file et faisait echouer les ecritures en
+-- silence (elles sont sous pcall). On n'ecrit donc qu'une fois par minute et par
+-- joueur, plus une ecriture forcee au depart.
+local SUBMIT_INTERVAL = 60
+local lastSubmitAt: { [number]: number } = {}
+local lastSubmitVal: { [number]: number } = {}
+
+-- Les valeurs OrderedDataStore doivent tenir dans un entier 64 bits signe ; un
+-- total astronomique ferait echouer l'ecriture au lieu de classer le joueur.
+local MAX_SCORE = 2 ^ 53
+
+function Leaderboard.submit(userId: number, totalEarned: number, force: boolean?)
 	if not ordered then return end
-	pcall(function()
-		ordered:SetAsync("u_" .. userId, math.floor(totalEarned))
+	if totalEarned ~= totalEarned then return end  -- NaN
+
+	local value = math.clamp(math.floor(totalEarned), 0, MAX_SCORE)
+	if lastSubmitVal[userId] == value then return end
+
+	local now = os.clock()
+	if not force and (now - (lastSubmitAt[userId] or -math.huge)) < SUBMIT_INTERVAL then
+		return
+	end
+	lastSubmitAt[userId] = now
+
+	local ok = pcall(function()
+		ordered:SetAsync("u_" .. userId, value)
 	end)
+	if ok then
+		lastSubmitVal[userId] = value
+	end
+end
+
+function Leaderboard.forget(userId: number)
+	lastSubmitAt[userId] = nil
+	lastSubmitVal[userId] = nil
 end
 
 local function nameFor(userId: number): string

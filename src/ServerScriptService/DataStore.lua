@@ -36,20 +36,48 @@ function DataModule.default()
 	}
 end
 
+-- Profils dont la LECTURE a reussi (ou joueurs neufs). Tant qu'un profil n'est
+-- pas ici, on refuse de l'ecrire : sans ce garde-fou, un GetAsync en echec
+-- (coupure DataStore, quota) laissait un profil par defaut en memoire, que la
+-- sauvegarde periodique ecrivait 2 min plus tard PAR-DESSUS la vraie partie.
+local loadedOk: { [number]: boolean } = {}
+
+local LOAD_RETRIES = 3
+
 function DataModule.load(userId: number)
 	local data = DataModule.default()
-	if store then
+	loadedOk[userId] = false
+
+	if not store then
+		-- Pas de DataStore du tout (Studio, place non publie) : rien a ecraser.
+		loadedOk[userId] = true
+		return data
+	end
+
+	for attempt = 1, LOAD_RETRIES do
 		local success, saved = pcall(function()
 			return store:GetAsync("p_" .. userId)
 		end)
-		if success and type(saved) == "table" then
-			for k, v in DataModule.default() do
-				if saved[k] ~= nil then
-					data[k] = saved[k]
+		if success then
+			if type(saved) == "table" then
+				for k in DataModule.default() do
+					if saved[k] ~= nil then
+						data[k] = saved[k]
+					end
 				end
 			end
+			-- saved == nil = joueur neuf, c'est une lecture reussie elle aussi.
+			loadedOk[userId] = true
+			return data
+		end
+		if attempt < LOAD_RETRIES then
+			task.wait(2 * attempt)
 		end
 	end
+
+	warn(string.format(
+		"[BabyFoot] Lecture du profil %d impossible apres %d essais : sauvegarde DESACTIVEE pour cette session (aucune perte de progression).",
+		userId, LOAD_RETRIES))
 	return data
 end
 
@@ -62,6 +90,8 @@ local lastPayload: { [number]: string } = {}
 
 function DataModule.save(userId: number, data, force: boolean?)
 	if not store then return end
+	-- Profil jamais lu correctement : on n'ecrit pas, on ne detruit rien.
+	if not loadedOk[userId] then return end
 	local payload = HttpService:JSONEncode(data)
 	if lastPayload[userId] == payload then return end
 	local now = os.clock()
@@ -80,6 +110,7 @@ end
 function DataModule.forget(userId: number)
 	lastSaveAt[userId] = nil
 	lastPayload[userId] = nil
+	loadedOk[userId] = nil
 end
 
 return DataModule
