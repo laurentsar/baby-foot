@@ -5,6 +5,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HapticService = game:GetService("HapticService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
@@ -70,6 +72,81 @@ local function button(text: string, color: Color3, parent: Instance): TextButton
 		PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4),
 	}, b)
 	return b
+end
+
+-------------------------------------------------------------------------------
+-- MAINTIEN D'UN BOUTON, TACTILE COMPRIS.
+--
+-- MouseButton1Down/Up/MouseLeave sont pensés pour une souris et se comportent
+-- mal au doigt : MouseLeave se déclenche dès que le doigt glisse un peu, ce qui
+-- lâchait le tir tout seul, et deux doigts sur l'écran laissaient l'état de
+-- charge incohérent.
+--
+-- On suit donc l'InputObject lui-même : seul le doigt (ou le clic) qui a
+-- COMMENCÉ le maintien peut y mettre fin. La fin est écoutée deux fois — sur le
+-- bouton et globalement — parce qu'un doigt relâché en dehors du bouton ne
+-- déclenche pas toujours InputEnded sur celui-ci.
+-------------------------------------------------------------------------------
+local function onHold(btn: GuiObject, began: () -> (), ended: () -> ())
+	local active: InputObject? = nil
+
+	local function stop(input: InputObject)
+		if active ~= input then return end
+		active = nil
+		ended()
+	end
+
+	btn.InputBegan:Connect(function(input)
+		if active then return end   -- un seul doigt à la fois sur ce bouton
+		local t = input.UserInputType
+		if t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseButton1 then return end
+		active = input
+		began()
+	end)
+
+	btn.InputEnded:Connect(stop)
+	UserInputService.InputEnded:Connect(stop)
+end
+
+-------------------------------------------------------------------------------
+-- RETOUR HAPTIQUE.
+--
+-- ATTENTION : Roblox n'expose AUCUNE API de vibration pour les écrans tactiles.
+-- HapticService ne pilote que les manettes. Sur téléphone sans manette, ces
+-- appels ne font donc rien — c'est une limite de la plateforme, pas un oubli.
+-- Le code est écrit pour ne jamais coûter cher quand rien ne répond.
+-------------------------------------------------------------------------------
+local hapticPad = Enum.UserInputType.Gamepad1
+
+-- Reponse mise en cache : le palier de charge peut vibrer plusieurs fois par
+-- seconde, on ne va pas reinterroger le service a chaque impulsion. Le cache est
+-- invalide au branchement ou au debranchement d'une manette.
+local vibrateOk: boolean? = nil
+
+local function canVibrate(): boolean
+	if vibrateOk == nil then
+		local ok, supported = pcall(function()
+			return HapticService:IsVibrationSupported(hapticPad)
+				and HapticService:IsMotorSupported(hapticPad, Enum.VibrationMotor.Large)
+		end)
+		vibrateOk = ok and supported == true
+	end
+	return vibrateOk == true
+end
+
+UserInputService.GamepadConnected:Connect(function() vibrateOk = nil end)
+UserInputService.GamepadDisconnected:Connect(function() vibrateOk = nil end)
+
+local function buzz(strength: number, duration: number)
+	if not canVibrate() then return end
+	pcall(function()
+		HapticService:SetMotor(hapticPad, Enum.VibrationMotor.Large, math.clamp(strength, 0, 1))
+	end)
+	task.delay(duration, function()
+		pcall(function()
+			HapticService:SetMotor(hapticPad, Enum.VibrationMotor.Large, 0)
+		end)
+	end)
 end
 
 -------------------------------------------------------------------------------
@@ -270,7 +347,7 @@ local charge = 0
 local chargeUp = true
 local lastTier = nil  -- palier affiché, pour ne repeindre la jauge qu'au changement
 
-shootBtn.MouseButton1Down:Connect(function()
+local function startCharge()
 	charging = true
 	charge = 0
 	chargeUp = true
@@ -278,7 +355,7 @@ shootBtn.MouseButton1Down:Connect(function()
 	-- Le serveur horodate l'appui : c'est ce qui lui permet de vérifier que la
 	-- charge annoncée au moment du tir correspond bien à la durée de maintien.
 	rChargeStart:FireServer()
-end)
+end
 
 local function fireShot()
 	if not charging then return end
@@ -290,10 +367,7 @@ local function fireShot()
 	charge = 0
 	chargeFill.Size = UDim2.new(0, 0, 1, 0)
 end
-shootBtn.MouseButton1Up:Connect(fireShot)
-shootBtn.MouseLeave:Connect(function()
-	if charging then fireShot() end
-end)
+onHold(shootBtn, startCharge, fireShot)
 
 RunService.RenderStepped:Connect(function(dt)
 	updateAim()
@@ -315,19 +389,23 @@ RunService.RenderStepped:Connect(function(dt)
 		local tier = Config.chargeTier(charge)
 		chargeFill.Size = UDim2.new(charge, 0, 1, 0)
 		if tier ~= lastTier then
+			-- Vibration seulement en MONTANT : la jauge fait des allers-retours,
+			-- buzzer aussi à la descente donnerait un signal ininterrompu.
+			local montait = lastTier ~= nil and chargeUp
 			lastTier = tier
 			chargeFill.BackgroundColor3 = tier.color
 			chargeLabel.Text = tier.label
 			chargeLabel.TextColor3 = tier.color
+			if montait then buzz(0.35, 0.06) end
 		end
 	end
 end)
 
 -- Entraînement : clic = 1 rep, maintien = reps auto.
 local training = false
-trainBtn.MouseButton1Down:Connect(function() training = true; rTrain:FireServer() end)
-trainBtn.MouseButton1Up:Connect(function() training = false end)
-trainBtn.MouseLeave:Connect(function() training = false end)
+onHold(trainBtn,
+	function() training = true; rTrain:FireServer() end,
+	function() training = false end)
 task.spawn(function()
 	while true do
 		if training then rTrain:FireServer() end
@@ -894,6 +972,14 @@ rToast.OnClientEvent:Connect(function(msg) toast(msg) end)
 -- Résultat des dés : la carte tirée, colorée par sa rareté.
 rDiceResult.OnClientEvent:Connect(function(res)
 	local r = Config.rarity(res.card.rarity)
+	-- Plus la carte est rare, plus ça tape. Au-delà du Légendaire, deux
+	-- pulsations : on doit sentir la différence sans regarder l'écran.
+	if r.mult >= 22 then
+		buzz(0.9, 0.12)
+		task.delay(0.2, function() buzz(0.9, 0.18) end)
+	elseif r.mult >= 8 then
+		buzz(0.5, 0.10)
+	end
 	toast(string.format("🎲 %s — %s (×%s)", res.card.name, r.name, Config.abbreviate(r.mult)),
 		r.color)
 end)
@@ -902,6 +988,7 @@ rShotResult.OnClientEvent:Connect(function(res)
 	local tier = res.tier and ("  •  " .. res.tier) or ""
 	if res.best then tier ..= "  •  " .. res.best end
 	if res.scored then
+		buzz(1, 0.35)
 		toast(string.format("🎯 BUT ! %d touchés  •  +%s $ (x%d)%s",
 			res.hits, Config.abbreviate(res.money), Config.Shot.scoreMultiplier, tier),
 			Color3.fromRGB(60, 160, 90))
