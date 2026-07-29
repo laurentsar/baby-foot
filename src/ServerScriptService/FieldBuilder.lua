@@ -482,11 +482,15 @@ end
 
 -- PASSERELLES LATÉRALES : une de chaque côté, le long des lignes de touche.
 -- Elles courent de la première base à la dernière et relient les bouts des 4
--- tiges, qui viennent s'y poser.
+-- tiges par une équerre montante.
 --
--- Tout est calé pour ne rien masquer : hors du terrain (à l'aplomb des panneaux
--- publicitaires), sous les tiges, et le garde-corps est du côté EXTÉRIEUR
--- seulement — un garde-corps côté terrain repasserait devant les figurines.
+-- Elles passent SUR LE HAUT DU MUR (origin.Y + wallHeight), pas à la hauteur
+-- des tiges. Premier essai : tablier calé sous les tiges, à 6 studs — soit
+-- derrière un mur latéral de 10 studs de haut, qui le masquait entièrement
+-- depuis le terrain. Une passerelle invisible ne sert à rien.
+--
+-- Le garde-corps reste du côté EXTÉRIEUR : à l'intérieur il repasserait devant
+-- les figurines.
 function FieldBuilder.buildWalkways(field)
 	if field.walkwayFolder then field.walkwayFolder:Destroy() end
 	local W = Config.Walkway
@@ -507,35 +511,39 @@ function FieldBuilder.buildWalkways(field)
 	local length = lastZ - firstZ
 	local midZ = (firstZ + lastZ) / 2
 
-	-- Les tiges sont à origin.Y + 7 et font 1.2 d'épaisseur : le tablier se cale
-	-- juste dessous, elles reposent dessus au lieu de le traverser.
-	local barY = field.origin.Y + 7
-	local deckTop = barY - 0.6
-	local deckY = deckTop - 0.25
-	local x = field.width / 2 + W.offset
+	-- Le tablier repose sur la crête du mur latéral et déborde vers l'extérieur
+	-- jusqu'à l'aplomb des bouts de tiges, où descendent les équerres.
+	local barTop = field.origin.Y + 7 + 0.6          -- dessus des tiges
+	local deckBottom = field.origin.Y + Config.Field.wallHeight
+	local deckY = deckBottom + 0.25
+	-- Bord intérieur sur l'axe du mur, bord extérieur au bout des tiges.
+	local innerX = field.width / 2
+	local outerX = field.width / 2 + W.overhang
+	local deckWidth = outerX - innerX
+	local cxAbs = (innerX + outerX) / 2
 
 	for _, side in { -1, 1 } do
-		local cx = field.origin.X + side * x
+		local cx = field.origin.X + side * cxAbs
 
-		local deck = part("Tablier", Vector3.new(W.width, 0.5, length),
+		local deck = part("Tablier", Vector3.new(deckWidth, 0.5, length),
 			CFrame.new(cx, deckY, midZ),
 			Color3.fromRGB(150, 120, 80), folder, Enum.Material.WoodPlanks)
 		deck.CanCollide = W.walkable
 
 		local rail = part("GardeCorps", Vector3.new(0.35, W.railHeight, length),
-			CFrame.new(cx + side * W.width / 2, deckTop + W.railHeight / 2, midZ),
+			CFrame.new(field.origin.X + side * outerX, deckY + 0.25 + W.railHeight / 2, midZ),
 			Color3.fromRGB(190, 195, 210), folder, Enum.Material.Metal)
 		rail.CanCollide = false
 
 		-- Une équerre entre le tablier et le bout de chaque tige : c'est ce qui
 		-- donne la lecture « les 4 tiges tiennent sur la même structure ».
 		-- Pas de poteau jusqu'au sol : il traverserait les panneaux
-		-- publicitaires, qui occupent la même bande. Le tablier repose sur eux.
+		-- publicitaires, qui occupent la même bande verticale.
 		local barEndX = field.origin.X + side * (field.width / 2 + 4)
 		for i, base in bases do
 			local z = startZ + spanZ * base.depth
-			local bracket = part("Equerre" .. i, Vector3.new(0.7, barY - deckTop, 0.7),
-				CFrame.new(barEndX, (barY + deckTop) / 2, z),
+			local bracket = part("Equerre" .. i, Vector3.new(0.7, deckBottom - barTop, 0.7),
+				CFrame.new(barEndX, (deckBottom + barTop) / 2, z),
 				Color3.fromRGB(90, 95, 110), folder, Enum.Material.Metal)
 			bracket.CanCollide = false
 		end

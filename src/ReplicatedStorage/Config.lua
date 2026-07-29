@@ -58,9 +58,13 @@ Config.Bases = {
 -- exactement la ligne de tir, ça masquait le baby-foot. Elles sont donc dehors,
 -- alignées sur les panneaux publicitaires (même `offset`) et calées juste sous
 -- les tiges, qui viennent s'y poser.
+-- PASSERELLES : une par ligne de touche, posée sur la crête des murs latéraux.
+-- Pas à la hauteur des tiges : à 6 studs, derrière un mur de 10, elle était
+-- invisible depuis le terrain.
 Config.Walkway = {
-	width = 3.5,        -- largeur du tablier
-	offset = 2.6,       -- distance au-delà du bord du terrain (= ligne des panneaux)
+	-- Débord vers l'extérieur au-delà du bord du terrain. 4 = l'aplomb des bouts
+	-- de tiges (les barres font width + 8), c'est là que descendent les équerres.
+	overhang = 4,
 	railHeight = 1.6,   -- garde-corps, côté extérieur seulement
 	margin = 6,         -- dépassement avant la 1re base et après la dernière
 	walkable = false,   -- décor : la balle est simulée sans collision de toute façon
