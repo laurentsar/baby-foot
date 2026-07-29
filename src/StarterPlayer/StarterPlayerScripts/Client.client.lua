@@ -83,17 +83,66 @@ local gui = make("ScreenGui", {
 }, playerGui)
 
 -------------------------------------------------------------------------------
+-- MISE À L'ÉCHELLE MOBILE.
+--
+-- Toute l'interface est dessinée en pixels fixes, calée sur un écran de 720 de
+-- haut. Sur un téléphone le viewport fait bien moins, et les blocs se
+-- chevauchaient : les panneaux mordaient sur les boutons du bas, le bandeau de
+-- stats passait sous la barre Roblox.
+--
+-- Plutôt que de replacer chaque élément, on dessine TOUT dans un conteneur en
+-- « unités de dessin » et on le réduit d'un coup. Le conteneur est
+-- volontairement dimensionné à l'inverse de l'échelle : une fois le UIScale
+-- appliqué, il recouvre exactement l'écran, donc les ancrages à droite et en
+-- bas (UDim2.new(1, -224, …)) restent justes.
+-------------------------------------------------------------------------------
+local DESIGN_H = 720
+
+local ui = make("Frame", {
+	Name = "Root",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+}, gui)
+local uiScale = make("UIScale", { Scale = 1 }, ui)
+
+local function fitToScreen()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	local v = cam.ViewportSize
+	if v.Y <= 0 then return end
+	-- Jamais d'agrandissement au-delà de 1 : sur grand écran, le dessin d'origine
+	-- est déjà à la bonne taille, l'étirer ne ferait que le rendre grossier.
+	local s = math.clamp(v.Y / DESIGN_H, 0.45, 1)
+	uiScale.Scale = s
+	ui.Size = UDim2.fromOffset(v.X / s, v.Y / s)
+end
+
+fitToScreen()
+do
+	local cam = workspace.CurrentCamera
+	if cam then
+		cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitToScreen)
+	end
+	-- La caméra est remplacée au respawn : on se rebranche sur la nouvelle.
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		local c = workspace.CurrentCamera
+		if c then c:GetPropertyChangedSignal("ViewportSize"):Connect(fitToScreen) end
+		fitToScreen()
+	end)
+end
+
+-------------------------------------------------------------------------------
 -- Panneau de stats (argent, puissance, renaissances) : collé au bord gauche de
 -- la boutique, qu'elle soit repliée ou ouverte (la boutique ouverte fait 320 de
 -- large, pas seulement son bouton de 150 — l'ancrage tient compte des deux).
 -------------------------------------------------------------------------------
 local statsPanel = make("Frame", {
 	Size = UDim2.fromOffset(260, 130),
-	Position = UDim2.new(1, -612, 0, 16),
+	Position = UDim2.new(1, -612, 0, 52),
 	BackgroundColor3 = BG,
 	BackgroundTransparency = 0.1,
 	BorderSizePixel = 0,
-}, gui)
+}, ui)
 corner(statsPanel, 12)
 make("UIStroke", { Color = ACCENT, Thickness = 1.5, Transparency = 0.4 }, statsPanel)
 make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder,
@@ -125,7 +174,7 @@ local bottom = make("Frame", {
 	Size = UDim2.new(1, 0, 0, 170),
 	Position = UDim2.new(0, 0, 1, -170),
 	BackgroundTransparency = 1,
-}, gui)
+}, ui)
 
 -- Bouton ENTRAÎNEMENT (gauche)
 local trainBtn = button("🏋️ S'ENTRAÎNER", GOLD, bottom)
@@ -290,19 +339,19 @@ end)
 -- Boutique (droite, repliable).
 -------------------------------------------------------------------------------
 local shopOpen = false
-local shopToggle = button("🛒 BOUTIQUE", Color3.fromRGB(120, 200, 120), gui)
+local shopToggle = button("🛒 BOUTIQUE", Color3.fromRGB(120, 200, 120), ui)
 shopToggle.Size = UDim2.fromOffset(150, 44)
-shopToggle.Position = UDim2.new(1, -166, 0, 16)
+shopToggle.Position = UDim2.new(1, -166, 0, 52)
 shopToggle.TextSize = 20
 
 local shop = make("Frame", {
 	Size = UDim2.fromOffset(320, 520),
-	Position = UDim2.new(1, -336, 0, 70),
+	Position = UDim2.new(1, -336, 0, 106),
 	BackgroundColor3 = BG,
 	BackgroundTransparency = 0.05,
 	BorderSizePixel = 0,
 	Visible = false,
-}, gui)
+}, ui)
 corner(shop, 14)
 make("UIStroke", { Color = Color3.fromRGB(120, 200, 120), Thickness = 1.5, Transparency = 0.4 }, shop)
 
@@ -390,7 +439,7 @@ if Config.Music.soundId ~= "" then
 end
 
 local musicBtn = button(if music then "🎵 MUSIQUE" else "🎵 à configurer",
-	if music then Color3.fromRGB(120, 200, 200) else Color3.fromRGB(95, 95, 115), gui)
+	if music then Color3.fromRGB(120, 200, 200) else Color3.fromRGB(95, 95, 115), ui)
 -- Coin haut-gauche : le panneau de stats (argent) a été déplacé contre la
 -- boutique, à droite, ce qui libère ce coin pour la musique.
 musicBtn.Size = UDim2.fromOffset(150, 32)
@@ -410,17 +459,17 @@ end)
 -------------------------------------------------------------------------------
 -- RECRUTER rétréci pour loger l'interrupteur du roulement auto à sa droite :
 -- l'ensemble occupe la même largeur qu'avant (16 -> 216).
-local diceBtn = button("🎲 RECRUTER", Color3.fromRGB(235, 170, 60), gui)
+local diceBtn = button("🎲 RECRUTER", Color3.fromRGB(235, 170, 60), ui)
 diceBtn.Size = UDim2.fromOffset(148, 62)
-diceBtn.Position = UDim2.fromOffset(16, 156)
+diceBtn.Position = UDim2.fromOffset(16, 52)
 diceBtn.TextSize = 18
 diceBtn.MouseButton1Click:Connect(function() rRoll:FireServer() end)
 
 -- Roulement automatique : payant une fois, puis simple marche/arrêt. L'état
 -- vient toujours du serveur — le clic ne fait qu'envoyer une intention.
-local autoRollBtn = button("🔁", Color3.fromRGB(120, 130, 150), gui)
+local autoRollBtn = button("🔁", Color3.fromRGB(120, 130, 150), ui)
 autoRollBtn.Size = UDim2.fromOffset(46, 62)
-autoRollBtn.Position = UDim2.fromOffset(170, 156)
+autoRollBtn.Position = UDim2.fromOffset(170, 52)
 autoRollBtn.TextSize = 13
 local autoRollOn = false
 local autoRollOwned = false
@@ -429,21 +478,24 @@ autoRollBtn.MouseButton1Click:Connect(function()
 end)
 
 local squadLabel = make("TextLabel", {
-	Size = UDim2.fromOffset(230, 22), Position = UDim2.fromOffset(16, 226),
+	Size = UDim2.fromOffset(230, 22), Position = UDim2.fromOffset(16, 118),
 	BackgroundTransparency = 1, Text = "👥 Équipe 0/11",
 	Font = Enum.Font.GothamBold, TextScaled = true,
 	TextColor3 = Color3.fromRGB(220, 224, 240),
 	TextXAlignment = Enum.TextXAlignment.Left,
-}, gui)
+}, ui)
 
-local collecToggle = button("👥 COLLECTION", Color3.fromRGB(150, 110, 235), gui)
+local collecToggle = button("👥 COLLECTION", Color3.fromRGB(150, 110, 235), ui)
 collecToggle.Size = UDim2.fromOffset(200, 40)
-collecToggle.Position = UDim2.fromOffset(16, 254)
+collecToggle.Position = UDim2.fromOffset(16, 144)
 collecToggle.TextSize = 16
 
 -- Les panneaux de la colonne de gauche occupent tous le même rectangle : un seul
 -- peut être ouvert à la fois, sinon ils se recouvrent.
-local PANEL_RECT = { x = 16, y = 344, w = 320, h = 380 }
+-- Bornes calculees pour que les panneaux ne mordent JAMAIS sur les commandes
+-- du bas : celles-ci occupent les 170 dernieres unites de dessin (720 - 170 =
+-- 550), et le panneau s'arrete a 546.
+local PANEL_RECT = { x = 16, y = 232, w = 320, h = 314 }
 local panels: { Frame } = {}
 
 local function sidePanel(stroke: Color3): Frame
@@ -452,7 +504,7 @@ local function sidePanel(stroke: Color3): Frame
 		Position = UDim2.fromOffset(PANEL_RECT.x, PANEL_RECT.y),
 		BackgroundColor3 = BG, BackgroundTransparency = 0.05,
 		BorderSizePixel = 0, Visible = false,
-	}, gui)
+	}, ui)
 	corner(p, 14)
 	make("UIStroke", { Color = stroke, Thickness = 1.5, Transparency = 0.4 }, p)
 	table.insert(panels, p)
@@ -533,9 +585,9 @@ end)
 -- INDEX / DONS / ADMIN : deuxième rangée de boutons, sous COLLECTION.
 -------------------------------------------------------------------------------
 local function rowButton(text: string, color: Color3, x: number, w: number): TextButton
-	local b = button(text, color, gui)
+	local b = button(text, color, ui)
 	b.Size = UDim2.fromOffset(w, 36)
-	b.Position = UDim2.fromOffset(x, 300)
+	b.Position = UDim2.fromOffset(x, 188)
 	b.TextSize = 14
 	return b
 end
@@ -821,12 +873,12 @@ local function toast(text: string, color: Color3?)
 		Size = UDim2.fromOffset(460, 46),
 		-- Sous le panneau de stats (16 + 130), qu'il recouvrait sur les écrans
 		-- étroits : le bandeau masquait renaissances et multiplicateur.
-		Position = UDim2.new(0.5, -230, 0, 160),
+		Position = UDim2.new(0.5, -230, 0, 200),
 		BackgroundColor3 = color or Color3.fromRGB(40, 44, 60),
 		TextColor3 = Color3.fromRGB(255, 255, 255),
 		Font = Enum.Font.GothamBold, TextScaled = true,
 		Text = text, BackgroundTransparency = 0.1,
-	}, gui)
+	}, ui)
 	corner(t, 10)
 	make("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, t)
 	task.delay(2.4, function()

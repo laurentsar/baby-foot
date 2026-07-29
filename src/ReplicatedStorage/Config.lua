@@ -730,7 +730,10 @@ end
 -- Les gains étant multiplicatifs (renaissances × rareté × valeur), on va bien
 -- plus haut que 1e18 : la table est allongée et, une fois épuisée, on bascule
 -- en notation scientifique plutôt que de cracher le nombre entier.
-local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" }
+-- Jusqu'a 1e63. La table s'arretait a Dc (1e33) et un solde de 8e37 sortait
+-- en notation scientifique en plein ecran de jeu, illisible.
+local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc",
+	"Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod", "Vg" }
 
 function Config.abbreviate(n: number): string
 	if n ~= n or n == math.huge or n == -math.huge then
