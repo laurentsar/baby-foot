@@ -51,16 +51,6 @@ Config.Bases = {
 	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
--- PONT : la passerelle qui relie les 4 bases entre elles, dans l'axe du
--- terrain. Purement visuelle, comme les tiges : la balle est simulée en
--- Anchored sans collision, et laisser marcher dessus mettrait le joueur au
--- milieu des figurines qu'il est censé viser de derrière la ligne.
-Config.Bridge = {
-	width = 5,             -- largeur du tablier
-	railHeight = 2.2,      -- hauteur des garde-corps
-	walkable = false,      -- passe à true pour en faire une vraie passerelle
-}
-
 Config.MaxSquad = 11        -- plafond de base : chaque renaissance l'augmente (voir extraSlotsFromRebirths)
 -- L'équipe est COMPLÈTE dès le départ : 11 emplacements ouverts, 11 joueurs
 -- posés. Les acheter un par un laissait le terrain à moitié vide et donnait

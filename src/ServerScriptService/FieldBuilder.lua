@@ -240,7 +240,6 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 	}
 
 	FieldBuilder.buildBases(field)
-	FieldBuilder.buildBridge(field)
 	FieldBuilder.buildDecor(field)
 	FieldBuilder.buildPlotBoundary(field, origin)
 	return field
@@ -477,63 +476,6 @@ function FieldBuilder.buildBases(field)
 		lbl.TextColor3 = Color3.fromRGB(220, 225, 240)
 		lbl.TextStrokeTransparency = 0.4
 		lbl.Parent = sign
-	end
-end
-
--- PONT : une passerelle dans l'axe du terrain, qui relie les 4 tiges entre
--- elles. Elle part de la première base et va jusqu'à la dernière, avec un
--- pilier et un tablier élargi au droit de chaque base — on lit d'un coup d'œil
--- que les bases forment une seule structure.
---
--- Non collidable par défaut (Config.Bridge.walkable) : la balle est simulée
--- sans collision de toute façon, et une passerelle praticable amènerait le
--- joueur au milieu des figurines qu'il doit viser depuis derrière la ligne.
-function FieldBuilder.buildBridge(field)
-	if field.bridgeFolder then field.bridgeFolder:Destroy() end
-	local B = Config.Bridge
-	local folder = Instance.new("Folder")
-	folder.Name = "Pont"
-	folder.Parent = field.root
-	field.bridgeFolder = folder
-
-	local bases = field.bases or Config.Bases
-	if #bases == 0 then return end
-
-	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 14
-	local endZ = field.goalZ - Config.Field.goalDepth - 8
-	local spanZ = endZ - startZ
-
-	local firstZ = startZ + spanZ * bases[1].depth
-	local lastZ = startZ + spanZ * bases[#bases].depth
-	local deckY = field.origin.Y + 7          -- hauteur des tiges
-	local length = lastZ - firstZ
-	local midZ = (firstZ + lastZ) / 2
-
-	local deck = part("Tablier", Vector3.new(B.width, 0.5, length),
-		CFrame.new(field.origin.X, deckY, midZ),
-		Color3.fromRGB(150, 120, 80), folder, Enum.Material.WoodPlanks)
-	deck.CanCollide = B.walkable
-
-	-- Garde-corps de chaque côté, sur toute la longueur.
-	for _, side in { -1, 1 } do
-		local rail = part("GardeCorps", Vector3.new(0.4, B.railHeight, length),
-			CFrame.new(field.origin.X + side * B.width / 2, deckY + B.railHeight / 2, midZ),
-			Color3.fromRGB(190, 195, 210), folder, Enum.Material.Metal)
-		rail.CanCollide = false
-	end
-
-	-- Au droit de chaque base : un plateau élargi et un pilier jusqu'au sol.
-	for i, base in bases do
-		local z = startZ + spanZ * base.depth
-		local pad = part("Plateforme" .. i, Vector3.new(B.width + 4, 0.6, 5),
-			CFrame.new(field.origin.X, deckY + 0.05, z),
-			Color3.fromRGB(120, 95, 60), folder, Enum.Material.WoodPlanks)
-		pad.CanCollide = B.walkable
-
-		local pillar = part("Pilier" .. i, Vector3.new(1, deckY - field.origin.Y, 1),
-			CFrame.new(field.origin.X, (deckY + field.origin.Y) / 2, z),
-			Color3.fromRGB(90, 95, 110), folder, Enum.Material.Metal)
-		pillar.CanCollide = false
 	end
 end
 
