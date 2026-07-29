@@ -19,6 +19,9 @@ local function part(name: string, size: Vector3, cf: CFrame, color: Color3, pare
 	p.Anchored = true
 	p.Color = color
 	p.Material = mat or Enum.Material.SmoothPlastic
+	-- Décor purement visuel : une passe d'ombre sur ~200 parts par plot coûte
+	-- cher pour un jeu joué au téléphone, et rien ici ne se lit à son ombre.
+	p.CastShadow = false
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	p.Parent = parent
@@ -305,7 +308,7 @@ function FieldBuilder.buildDecor(field)
 				CFrame.new(x, origin.Y + h / 2, origin.Z), Color3.fromRGB(70, 74, 88),
 				folder, Enum.Material.Concrete)
 
-			local seats = 14
+			local seats = Config.Crowd.seatsPerTier
 			for i = 0, seats - 1 do
 				local z = origin.Z - (length + 12) / 2 + (i + 0.5) * (length + 12) / seats
 				-- Corps + tête sont soudés dans un Model : le public saute d'un
@@ -495,6 +498,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			pad.Size = Vector3.new(4, 0.4, 4)
 			pad.Anchored = true
 			pad.CanCollide = false
+			pad.CastShadow = false
 			pad.Material = Enum.Material.SmoothPlastic
 			pad.Color = if unlocked then Color3.fromRGB(90, 95, 110) else Color3.fromRGB(45, 47, 58)
 			pad.Transparency = if unlocked then 0.2 else 0.6
@@ -512,6 +516,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			fig.Size = Vector3.new(3, 6, 3)
 			fig.Anchored = true
 			fig.CanCollide = false
+			fig.CastShadow = false
 			fig.Color = J.body
 			fig.Material = Enum.Material.SmoothPlastic
 			fig.CFrame = CFrame.new(slot.position)
@@ -527,6 +532,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			stripe.Size = Vector3.new(0.9, 6.05, 3.05)
 			stripe.Anchored = true
 			stripe.CanCollide = false
+			stripe.CastShadow = false
 			stripe.Color = J.stripe
 			stripe.Material = Enum.Material.SmoothPlastic
 			stripe.CFrame = fig.CFrame
@@ -537,6 +543,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			trim.Size = Vector3.new(3.1, 0.5, 3.1)
 			trim.Anchored = true
 			trim.CanCollide = false
+			trim.CastShadow = false
 			trim.Color = J.trim
 			trim.Material = Enum.Material.SmoothPlastic
 			trim.CFrame = fig.CFrame + Vector3.new(0, 2.6, 0)
@@ -547,6 +554,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			shorts.Size = Vector3.new(3.05, 1.8, 3.05)
 			shorts.Anchored = true
 			shorts.CanCollide = false
+			shorts.CastShadow = false
 			shorts.Color = J.shorts
 			shorts.Material = Enum.Material.SmoothPlastic
 			shorts.CFrame = fig.CFrame - Vector3.new(0, 2.1, 0)
@@ -559,6 +567,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			socle.Size = Vector3.new(0.6, 4.4, 4.4)
 			socle.Anchored = true
 			socle.CanCollide = false
+			socle.CastShadow = false
 			socle.Color = rarity.color
 			socle.Material = Enum.Material.Neon
 			socle.CFrame = CFrame.new(slot.position - Vector3.new(0, 3.1, 0))
@@ -571,6 +580,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			head.Size = Vector3.new(2.4, 2.4, 2.4)
 			head.Anchored = true
 			head.CanCollide = false
+			head.CastShadow = false
 			head.Color = Color3.fromRGB(255, 220, 180)
 			head.CFrame = fig.CFrame + Vector3.new(0, 3.8, 0)
 			head.Parent = fig
@@ -592,6 +602,39 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			lbl.TextColor3 = rarity.color
 			lbl.TextStrokeTransparency = 0.3
 			lbl.Parent = tag
+		end
+	end
+end
+
+-- Une figurine touchée est MASQUÉE, pas détruite. Avant, chaque tir détruisait
+-- les figurines touchées puis placeSquad reconstruisait toute l'équipe : à 41
+-- emplacements et 8 instances par figurine, ça faisait ~330 instances créées et
+-- détruites toutes les 2,2 s et par joueur, chacune répliquée à tous les
+-- clients (étiquette comprise). Masquer/réafficher ne touche que 7 propriétés
+-- d'un arbre déjà en place.
+local function setVisible(fig: BasePart, visible: boolean)
+	fig.Transparency = if visible then 0 else 1
+	for _, d in fig:GetChildren() do
+		if d:IsA("BasePart") then
+			d.Transparency = if visible then 0 else 1
+		elseif d:IsA("BillboardGui") then
+			d.Enabled = visible
+		end
+	end
+end
+
+function FieldBuilder.knockDown(fig: BasePart)
+	fig:SetAttribute("Down", true)
+	setVisible(fig, false)
+end
+
+-- Relève les figurines couchées. Ne recrée rien : à utiliser après un tir, quand
+-- la composition de l'équipe n'a pas bougé (sinon, placeSquad).
+function FieldBuilder.standUp(field)
+	for _, fig in field.figuresFolder:GetChildren() do
+		if fig:IsA("BasePart") and fig.Name == "Figure" and fig:GetAttribute("Down") then
+			fig:SetAttribute("Down", nil)
+			setVisible(fig, true)
 		end
 	end
 end
@@ -742,10 +785,15 @@ function FieldBuilder.cheer(field)
 		end
 	end
 
-	local WAVE = 0.004  -- décalage par supporter : ça fait une ola, pas un bloc
+	local WAVE = E.waveOffset  -- décalage par supporter : ça fait une ola, pas un bloc
+	local step = 1 / E.waveFps
 	task.spawn(function()
 		local start = os.clock()
 		local duration = E.jumpTime * 2 + WAVE * #field.crowd
+		-- Un supporter déjà reposé n'a pas besoin qu'on lui réécrive sa position :
+		-- à un instant donné, seule une fraction de la tribune est en l'air, et
+		-- chaque PivotTo inutile est un CFrame répliqué à tous les clients.
+		local atRest = {}
 		while os.clock() - start < duration do
 			local t = os.clock() - start
 			for i, fan in field.crowd do
@@ -755,10 +803,13 @@ function FieldBuilder.cheer(field)
 					local h = if phase <= 0 or phase >= 2 then 0
 						elseif phase <= 1 then phase
 						else 2 - phase
-					fan:PivotTo(base + Vector3.new(0, E.jumpHeight * h, 0))
+					if h ~= 0 or not atRest[i] then
+						fan:PivotTo(base + Vector3.new(0, E.jumpHeight * h, 0))
+						atRest[i] = h == 0
+					end
 				end
 			end
-			task.wait()
+			task.wait(step)
 		end
 		for i, fan in field.crowd do
 			if bases[i] then fan:PivotTo(bases[i]) end

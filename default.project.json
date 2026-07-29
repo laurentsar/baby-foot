@@ -19,7 +19,9 @@
 
     "Workspace": {
       "$properties": {
-        "FilteringEnabled": true
+        "FilteringEnabled": true,
+        "StreamingEnabled": true,
+        "StreamingTargetRadius": 640
       },
       "Baseplate": {
         "$className": "Part",
@@ -41,7 +43,7 @@
         "ClockTime": 20,
         "FogColor": [0.05, 0.05, 0.10],
         "FogEnd": 600,
-        "Technology": "Future"
+        "Technology": "Voxel"
       }
     }
   }

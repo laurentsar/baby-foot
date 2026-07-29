@@ -147,6 +147,12 @@ local aimLabel = make("TextLabel", {
 	Font = Enum.Font.GothamBold, TextScaled = true, TextColor3 = ACCENT,
 }, aimFrame)
 
+-- L'angle se recalcule à chaque frame (c'est lui qu'on tire), mais l'étiquette
+-- ne se réécrit que si son texte change vraiment : un TextLabel en TextScaled
+-- relance une passe de mise en page à chaque affectation, et 60 par seconde
+-- pour afficher le même degré, c'est de la batterie brûlée pour rien.
+local lastAimText = ""
+
 local function updateAim()
 	-- Relu à chaque frame : la caméra est remplacée au respawn.
 	local camera = workspace.CurrentCamera
@@ -157,8 +163,12 @@ local function updateAim()
 	aimAngle = math.clamp(raw, -maxA, maxA)
 	local arrow = if aimAngle < -2 then "◄" elseif aimAngle > 2 then "►" else "▲"
 	local capped = if math.abs(raw) > maxA then "  (max)" else ""
-	aimLabel.Text = string.format("VISÉE %s %d°%s", arrow, math.floor(aimAngle + 0.5), capped)
-	aimLabel.TextColor3 = if capped == "" then ACCENT else Color3.fromRGB(255, 150, 90)
+	local text = string.format("VISÉE %s %d°%s", arrow, math.floor(aimAngle + 0.5), capped)
+	if text ~= lastAimText then
+		lastAimText = text
+		aimLabel.Text = text
+		aimLabel.TextColor3 = if capped == "" then ACCENT else Color3.fromRGB(255, 150, 90)
+	end
 end
 
 -- Bouton TIR + jauge de charge (droite)
@@ -204,11 +214,13 @@ local chargeLabel = make("TextLabel", {
 local charging = false
 local charge = 0
 local chargeUp = true
+local lastTier = nil  -- palier affiché, pour ne repeindre la jauge qu'au changement
 
 shootBtn.MouseButton1Down:Connect(function()
 	charging = true
 	charge = 0
 	chargeUp = true
+	lastTier = nil
 	-- Le serveur horodate l'appui : c'est ce qui lui permet de vérifier que la
 	-- charge annoncée au moment du tir correspond bien à la durée de maintien.
 	rChargeStart:FireServer()
@@ -243,11 +255,17 @@ RunService.RenderStepped:Connect(function(dt)
 			charge -= dt * Config.ChargeRate
 			if charge <= 0 then charge = 0; chargeUp = true end
 		end
+		-- La barre suit la charge à chaque frame (c'est le geste du joueur), mais
+		-- couleur et libellé ne changent qu'aux frontières de palier : les
+		-- réécrire 60 fois par seconde ne changeait rien à l'écran.
 		local tier = Config.chargeTier(charge)
 		chargeFill.Size = UDim2.new(charge, 0, 1, 0)
-		chargeFill.BackgroundColor3 = tier.color
-		chargeLabel.Text = tier.label
-		chargeLabel.TextColor3 = tier.color
+		if tier ~= lastTier then
+			lastTier = tier
+			chargeFill.BackgroundColor3 = tier.color
+			chargeLabel.Text = tier.label
+			chargeLabel.TextColor3 = tier.color
+		end
 	end
 end)
 

@@ -457,6 +457,16 @@ Config.Crowd = {
 	volume = 0.6,
 	jumpHeight = 3,      -- hauteur du bond des supporters
 	jumpTime = 0.28,
+	-- Supporters par gradin et par côté. 6 gradins => seatsPerTier x 6 modèles
+	-- de 2 parts chacun, par plot et par joueur connecté. À 14 la tribune
+	-- coûtait 168 parts par plot et autant de CFrame répliqués à chaque but.
+	seatsPerTier = 8,
+	-- Rafraîchissement de l'ola. Le bond durant ~0,28 s, 30 Hz suffit largement
+	-- et divise par deux le trafic de réplication d'un but.
+	waveFps = 30,
+	-- Décalage du bond d'un supporter au suivant : plus il est grand, moins il y
+	-- a de supporters en l'air en même temps (donc de CFrame à écrire).
+	waveOffset = 0.012,
 }
 
 -------------------------------------------------------------------------------

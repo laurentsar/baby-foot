@@ -359,6 +359,7 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	ball.Material = Enum.Material.Neon
 	ball.Anchored = true
 	ball.CanCollide = false
+	ball.CastShadow = false
 	ball.Position = field.shootPos
 	ball.Parent = field.root
 
@@ -368,6 +369,18 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	local pos = field.shootPos
 	local halfW = field.width / 2 - 2
+	-- Liste figée au départ du tir. GetChildren() alloue un tableau neuf à chaque
+	-- appel : le faire à chaque Heartbeat, pour chaque balle en vol, remplissait
+	-- le GC pour rien. Les figurines ne bougent pas pendant le vol — repopulate
+	-- est reporté tant que le verrou de tir tient.
+	local targets: { BasePart } = {}
+	for _, fig in field.figuresFolder:GetChildren() do
+		if fig:IsA("BasePart") and fig.Name == "Figure" and not fig:GetAttribute("Down") then
+			table.insert(targets, fig)
+		end
+	end
+
+	local radiusSq = S.hitRadius * S.hitRadius
 	local hitSet: { [Instance]: boolean } = {}
 	local hits = 0
 	local hitValue = 0   -- somme des multiplicateurs de rareté touchés
@@ -390,13 +403,17 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 		ball.Position = Vector3.new(pos.X, field.shootPos.Y, pos.Z)
 
-		-- Collisions joueurs. Les socles d'emplacement vide sont dans le même
-		-- dossier : seuls les "Figure" comptent, sinon un terrain à moitié vide
-		-- rapporterait autant qu'une équipe complète.
-		for _, fig in field.figuresFolder:GetChildren() do
-			if fig:IsA("BasePart") and fig.Name == "Figure" and not hitSet[fig] then
+		-- Collisions joueurs. `targets` ne contient que les "Figure" debout : les
+		-- socles d'emplacement vide ne comptent pas, sinon un terrain à moitié
+		-- vide rapporterait autant qu'une équipe complète.
+		local bx, bz = pos.X, pos.Z
+		for _, fig in targets do
+			if not hitSet[fig] and fig.Parent then
 				local fp = fig.Position
-				if (Vector3.new(fp.X, ball.Position.Y, fp.Z) - ball.Position).Magnitude < S.hitRadius then
+				-- Distance au carré dans le plan : évite une racine carrée par
+				-- figurine et par frame (41 x 60/s et par balle en vol).
+				local dxf, dzf = fp.X - bx, fp.Z - bz
+				if dxf * dxf + dzf * dzf < radiusSq then
 					hitSet[fig] = true
 					hits += 1
 					local mult = tonumber(fig:GetAttribute("Mult")) or 1
@@ -405,11 +422,10 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 					if typeof(rarete) == "string" and (best == nil or mult > best.mult) then
 						best = { mult = mult, name = rarete }
 					end
-					fig.Color = Color3.fromRGB(255, 220, 60)
-					-- Destruction immédiate : un task.delay laissait la figurine
-					-- une frame de plus dans le dossier, le temps qu'une autre
-					-- balle la compte elle aussi.
-					fig:Destroy()
+					-- Masquée immédiatement : un task.delay la laissait une frame
+					-- de plus dans la liste, le temps qu'une autre balle la
+					-- compte elle aussi.
+					FieldBuilder.knockDown(fig)
 				end
 			end
 		end
@@ -472,7 +488,17 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	-- figurines reposées : sinon le tir suivant partait sur un terrain vide.
 	task.delay(Config.Shot.respawnDelay, function()
 		session.shootingUntil = 0
-		if sessions[player] == session then repopulate(session) end
+		if sessions[player] ~= session then return end
+		if session.repopulatePending then
+			-- L'équipe a changé pendant le vol (dés, renaissance, emplacement
+			-- acheté) : il faut vraiment reconstruire. Le drapeau était posé mais
+			-- jamais relu, la reconstruction différée était donc perdue.
+			repopulate(session)
+		else
+			-- Composition inchangée : on relève les figurines couchées au lieu de
+			-- détruire et recréer tout le plateau.
+			FieldBuilder.standUp(session.field)
+		end
 	end)
 
 	-- Soumet au classement (throttlé côté Leaderboard : ~1 écriture/min/joueur).
