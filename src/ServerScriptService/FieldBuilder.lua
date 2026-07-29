@@ -569,7 +569,8 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			pad.Parent = field.figuresFolder
 		else
 			local rarity = Config.rarity(card.rarity)
-			local J = Config.Jersey
+			-- Tenue de base, sauf pour les raretés qui ont la leur (Exclusif).
+			local J = Config.skinFor(rarity.key)
 
 			-- Corps = le maillot. La rareté n'est plus portée par la couleur du
 			-- corps (tous les joueurs ont le même maillot) : elle passe sur le
@@ -644,9 +645,57 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			head.Anchored = true
 			head.CanCollide = false
 			head.CastShadow = false
-			head.Color = Color3.fromRGB(255, 220, 180)
+			head.Color = J.head
 			head.CFrame = fig.CFrame + Vector3.new(0, 3.8, 0)
 			head.Parent = fig
+
+			-- Bras, chaussettes et chaussures : uniquement pour les tenues qui les
+			-- déclarent. Les ajouter à toutes les figurines aurait triplé le nombre
+			-- de parts par plot pour un détail invisible à distance de tir.
+			if J.arms then
+				for _, side in { -1, 1 } do
+					local arm = Instance.new("Part")
+					arm.Name = "Bras"
+					arm.Size = Vector3.new(1.1, 3.4, 1.6)
+					arm.Anchored = true
+					arm.CanCollide = false
+					arm.CastShadow = false
+					arm.Color = J.arms
+					arm.Material = Enum.Material.SmoothPlastic
+					arm.CFrame = fig.CFrame + Vector3.new(side * 2.05, 0.9, 0)
+					arm.Parent = fig
+				end
+			end
+
+			-- Chaussettes et chaussures : des bandeaux autour du bas du corps, pas
+			-- des jambes séparées. La figurine est un bloc plein de 6 studs posé
+			-- sur un socle à -3.1 ; des pieds modélisés à part traverseraient ce
+			-- socle par le dessous.
+			if J.socks then
+				local sock = Instance.new("Part")
+				sock.Name = "Chaussettes"
+				sock.Size = Vector3.new(3.07, 0.84, 3.07)
+				sock.Anchored = true
+				sock.CanCollide = false
+				sock.CastShadow = false
+				sock.Color = J.socks
+				sock.Material = Enum.Material.SmoothPlastic
+				sock.CFrame = fig.CFrame - Vector3.new(0, 2.32, 0)
+				sock.Parent = fig
+			end
+
+			if J.shoes then
+				local shoe = Instance.new("Part")
+				shoe.Name = "Chaussures"
+				shoe.Size = Vector3.new(3.08, 0.26, 3.2)
+				shoe.Anchored = true
+				shoe.CanCollide = false
+				shoe.CastShadow = false
+				shoe.Color = J.shoes
+				shoe.Material = Enum.Material.SmoothPlastic
+				shoe.CFrame = fig.CFrame - Vector3.new(0, 2.87, 0)
+				shoe.Parent = fig
+			end
 
 			-- Étiquette discrète : taille fixe (pas de TextScaled, qui gonflait le
 			-- texte à la hauteur du cadre) et masquée au-delà de 120 studs.

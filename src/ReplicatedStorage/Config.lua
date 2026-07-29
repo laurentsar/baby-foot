@@ -141,6 +141,12 @@ Config.Rarities = {
 	{ key = "legendaire", name = "Légendaire", mult = 22, weight = 5,  color = Color3.fromRGB(255, 180, 40)  },
 	{ key = "mythique",   name = "Mythique",   mult = 60, weight = 1,  color = Color3.fromRGB(255, 80, 120)  },
 	{ key = "divin",      name = "Divin",      mult = 120, weight = 0.15, color = Color3.fromRGB(255, 255, 255) },
+	-- EXCLUSIF : la carte du haut du tableau. Poids 0.02 = environ un tirage sur
+	-- 5000, soit un objectif de très longue haleine plutôt qu'une surprise.
+	-- Pour la rendre totalement inobtenable aux dés (et réservée aux dons ou aux
+	-- commandes admin), mettre weight = 0 : rollRarity ne la choisira jamais.
+	-- Seule rareté à porter sa propre tenue, cf. Config.Skins.
+	{ key = "exclusif",   name = "Exclusif",   mult = 500, weight = 0.02, color = Color3.fromRGB(150, 160, 235) },
 }
 
 function Config.rarity(key: string)
@@ -532,7 +538,43 @@ Config.Jersey = {
 	stripe = Color3.fromRGB(214, 38, 48),
 	trim = Color3.fromRGB(240, 240, 245),
 	shorts = Color3.fromRGB(12, 18, 52),
+	head = Color3.fromRGB(255, 220, 180),
+	shoes = nil,   -- pas de chaussures sur la tenue de base
 }
+
+-------------------------------------------------------------------------------
+-- TENUES PAR RARETÉ.
+--
+-- Par défaut toutes les figurines portent Config.Jersey : la rareté se lit au
+-- socle lumineux, pas au maillot. Une rareté listée ici fait exception et porte
+-- sa propre tenue — c'est ce qui rend une carte Exclusive reconnaissable de
+-- loin, sans avoir à lire son étiquette.
+--
+-- Les champs absents retombent sur Config.Jersey.
+-------------------------------------------------------------------------------
+Config.Skins = {
+	exclusif = {
+		body = Color3.fromRGB(132, 143, 220),    -- maillot bleu-violet
+		stripe = Color3.fromRGB(150, 160, 235),  -- bande à peine plus claire : tenue unie
+		trim = Color3.fromRGB(120, 130, 205),
+		shorts = Color3.fromRGB(58, 96, 168),    -- bas bleu
+		head = Color3.fromRGB(226, 178, 142),
+		arms = Color3.fromRGB(226, 178, 142),    -- bras nus
+		socks = Color3.fromRGB(64, 196, 208),    -- rayures turquoise
+		shoes = Color3.fromRGB(242, 242, 248),   -- baskets blanches
+	},
+}
+
+-- Tenue effective d'une rareté : la tenue dédiée si elle existe, complétée par
+-- la tenue de base pour tout ce qu'elle ne précise pas.
+function Config.skinFor(rarityKey: string)
+	local skin = Config.Skins[rarityKey]
+	if not skin then return Config.Jersey end
+	local out = {}
+	for k, v in Config.Jersey do out[k] = v end
+	for k, v in skin do out[k] = v end
+	return out
+end
 
 -------------------------------------------------------------------------------
 -- MATCH : cycle affiché sur le grand écran.

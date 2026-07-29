@@ -19,14 +19,17 @@ des **renaissances** et grimpe au **classement mondial**.
    elle, la traverse).
 3. **Recruter aux dés** 🎲 — chaque lancer coûte de l'argent et donne **un joueur
    de foot** à collectionner : Commun ×1, Rare ×3, Épique ×8, Légendaire ×22,
-   Mythique ×60. Le tirage est fait par le serveur (le client n'envoie que
-   « je lance »).
+   Mythique ×60, Divin ×120 et **Exclusif ×500** (environ un tirage sur 5000,
+   et la seule carte à porter sa propre tenue). Le tirage est fait par le
+   serveur (le client n'envoie que « je lance »).
 4. **Composer l'équipe** 👥 — le terrain est un vrai baby-foot : **4 bases**
    (Attaque 3, Milieu 5, Défense 2, Gardien 1) = **11 joueurs**, en maillot de
    Paris. L'équipe est **complète dès la première partie** (11 Communs offerts) :
    la progression n'est pas le nombre de joueurs mais leur rareté — les dés
    remplacent les Communs, les meilleures cartes se placent automatiquement.
-   La **rareté se lit sur le socle lumineux** sous chaque joueur.
+   La **rareté se lit sur le socle lumineux** sous chaque joueur — sauf
+   l'Exclusif, reconnaissable de loin à sa tenue (maillot bleu-violet, bras nus,
+   chaussettes turquoise, baskets blanches ; cf. `Config.Skins`).
 5. **Toucher / Marquer** — chaque joueur touché rapporte selon **sa rareté**
    (valeur du joueur × multiplicateur de la carte × balle × bonus).
    Si la balle finit **dans le but** (il ne fait que 30 % de la largeur : il faut
