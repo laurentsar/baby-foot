@@ -10,15 +10,17 @@ Config.SaveKey = "BabyFootPower_v1"  -- change la clé => reset des sauvegardes
 -- HALTÈRES (haltères = vitesse de gain de puissance à l'entraînement)
 -- powerGain = puissance gagnée par "rep" d'entraînement.
 -------------------------------------------------------------------------------
+-- Gains divisés par deux : la puissance montait trop vite, le tir atteignait le
+-- fond du terrain avant que la collection ne serve à quelque chose.
 Config.Dumbbells = {
-	{ name = "Haltère Mousse",   powerGain = 1,    cost = 0 },
-	{ name = "Haltère Rouille",  powerGain = 3,    cost = 500 },
-	{ name = "Haltère Fer",      powerGain = 8,    cost = 4000 },
-	{ name = "Haltère Acier",    powerGain = 20,   cost = 25000 },
-	{ name = "Haltère Titane",   powerGain = 55,   cost = 150000 },
-	{ name = "Haltère Diamant",  powerGain = 150,  cost = 900000 },
-	{ name = "Haltère Néon",     powerGain = 420,  cost = 6000000 },
-	{ name = "Haltère Galaxie",  powerGain = 1200, cost = 40000000 },
+	{ name = "Haltère Mousse",   powerGain = 1,   cost = 0 },
+	{ name = "Haltère Rouille",  powerGain = 2,   cost = 500 },
+	{ name = "Haltère Fer",      powerGain = 4,   cost = 4000 },
+	{ name = "Haltère Acier",    powerGain = 10,  cost = 25000 },
+	{ name = "Haltère Titane",   powerGain = 28,  cost = 150000 },
+	{ name = "Haltère Diamant",  powerGain = 75,  cost = 900000 },
+	{ name = "Haltère Néon",     powerGain = 210, cost = 6000000 },
+	{ name = "Haltère Galaxie",  powerGain = 600, cost = 40000000 },
 }
 
 -------------------------------------------------------------------------------
@@ -301,7 +303,7 @@ Config.ErasureConfirmWindow = 30
 -- ENTRAÎNEMENT
 -------------------------------------------------------------------------------
 Config.Train = {
-	repCooldown = 0.20,    -- délai serveur min entre deux reps (anti-triche)
+	repCooldown = 0.35,    -- délai serveur min entre deux reps (anti-triche + rythme)
 }
 
 -------------------------------------------------------------------------------
@@ -321,6 +323,10 @@ Config.Shot = {
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
 	maxAngle = 55,         -- angle de tir max de part et d'autre de l'axe
+	-- Délai avant que les figurines touchées ne se relèvent. Le verrou de tir
+	-- court jusque-là : un terrain vide entre deux tirs oblige à viser plutôt
+	-- qu'à mitrailler.
+	respawnDelay = 2.2,
 }
 
 -------------------------------------------------------------------------------

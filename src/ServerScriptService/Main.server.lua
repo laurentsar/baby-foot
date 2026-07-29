@@ -467,7 +467,7 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	-- Respawn des cibles après le tir. Le verrou n'est relâché qu'une fois les
 	-- figurines reposées : sinon le tir suivant partait sur un terrain vide.
-	task.delay(0.6, function()
+	task.delay(Config.Shot.respawnDelay, function()
 		session.shootingUntil = 0
 		if sessions[player] == session then repopulate(session) end
 	end)
