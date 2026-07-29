@@ -33,6 +33,7 @@ function DataModule.default()
 		cards = {},      -- collection : { {name = "...", rarity = "commun"}, ... }
 		rebirths = 0,
 		totalEarned = 0, -- pour le classement mondial
+		autoShoot = false, -- interrupteur du tir automatique, conservé d'une session à l'autre
 	}
 end
 

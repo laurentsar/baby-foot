@@ -31,6 +31,10 @@ local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
 local rErase = Remotes.get("EraseData")
+local rAutoShoot = Remotes.get("AutoShoot")
+local rGift = Remotes.get("Gift")
+local rAdmin = Remotes.get("Admin")
+local rRoster = Remotes.get("Roster")
 
 -- Tirage des dés : un seul générateur serveur, jamais le client.
 local rng = Random.new()
@@ -41,6 +45,7 @@ local rng = Random.new()
 type Session = {
 	data: any,
 	field: any,
+	userId: number,
 	slot: number,
 	passes: { [string]: boolean },
 	lastTrain: number,
@@ -49,6 +54,8 @@ type Session = {
 	shootingUntil: number,      -- une seule balle en vol par joueur (verrou auto-expirant)
 	repopulatePending: boolean, -- replacement des figurines reporté après le tir
 	chargeStartAt: number?,     -- horodatage serveur de l'appui sur TIRER
+	autoAngle: number?,         -- angle courant du balayage du tir automatique
+	lastGift: number,           -- horodatage du dernier don (anti-spam)
 	eraseArmedUntil: number,    -- droit à l'oubli : fenêtre de confirmation
 	spawnPos: Vector3?,
 	props: { Instance }?,      -- décor du plot (entrée, gym) à détruire au départ
@@ -180,6 +187,11 @@ local function buildStats(session: Session)
 		rebirthCost = Config.rebirthCost(d.rebirths),
 		nextRebirthMult = Config.rebirthMultiplier(d.rebirths + 1, session.passes.RebirthX2 == true),
 		passes = session.passes,
+		autoShootUnlocked = Config.autoShootUnlockedBy(d.totalEarned, session.passes.AutoShoot == true),
+		autoShootOn = d.autoShoot == true,
+		-- Contrôlé aussi à chaque commande côté serveur : ce champ ne sert qu'à
+		-- afficher ou non le panneau, il n'autorise rien par lui-même.
+		isAdmin = Config.isAdmin(session.userId),
 	}
 end
 
@@ -214,6 +226,24 @@ local function repopulate(session: Session)
 	FieldBuilder.placeSquad(session.field, squadOf(session), unlockedSlots(session))
 end
 
+-- INDEX : pour chaque nom déjà recruté, la MEILLEURE rareté possédée. Le client
+-- connaît le catalogue complet (Config.catalogue(), partagé) — on ne lui envoie
+-- donc que ce qu'il possède, pas les 256 entrées à chaque rafraîchissement.
+local function indexOf(session: Session): { [string]: string }
+	local best: { [string]: string } = {}
+	local rank: { [string]: number } = {}
+	for i, r in Config.Rarities do
+		rank[r.key] = i
+	end
+	for _, card in session.data.cards do
+		local cur = best[card.name]
+		if cur == nil or (rank[card.rarity] or 0) > (rank[cur] or 0) then
+			best[card.name] = card.rarity
+		end
+	end
+	return best
+end
+
 local function pushCollection(player: Player)
 	local session = sessions[player]
 	if not session then return end
@@ -222,6 +252,7 @@ local function pushCollection(player: Player)
 		squad = squadOf(session),
 		unlockedSlots = unlockedSlots(session),
 		maxSlots = maxSlotsFor(session),
+		index = indexOf(session),
 	})
 end
 
@@ -301,7 +332,10 @@ rChargeStart.OnServerEvent:Connect(function(player)
 	session.chargeStartAt = os.clock()
 end)
 
-rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
+-- Corps du tir, partagé par le tir manuel et le tir automatique. `auto` = tir
+-- généré par le serveur : la charge n'est alors pas à vérifier, elle vient du
+-- serveur lui-même (Config.AutoShoot.charge) et non d'un client.
+local function performShot(player: Player, angleDeg: number, chargePct: number, auto: boolean)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(angleDeg) ~= "number" or typeof(chargePct) ~= "number" then return end
@@ -331,7 +365,12 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	-- modifié annonce 1.0 à chaque tir et décroche le palier maximal en
 	-- permanence. Le serveur recalcule la charge attendue depuis la durée
 	-- d'appui qu'il a lui-même horodatée, et refuse un écart trop grand.
-	if session.chargeStartAt then
+	if auto then
+		-- Rien à vérifier : la charge vient du serveur. On purge quand même un
+		-- éventuel appui en cours, sinon le tir manuel suivant serait comparé à
+		-- un horodatage périmé et verrait sa charge écrasée.
+		session.chargeStartAt = nil
+	elseif session.chargeStartAt then
 		local expected = Config.chargeAt(now - session.chargeStartAt)
 		if math.abs(chargePct - expected) > Config.ChargeTolerance then
 			chargePct = expected
@@ -503,6 +542,212 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 
 	-- Soumet au classement (throttlé côté Leaderboard : ~1 écriture/min/joueur).
 	Leaderboard.submit(player.UserId, session.data.totalEarned)
+end
+
+rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
+	performShot(player, angleDeg, chargePct, false)
+end)
+
+-------------------------------------------------------------------------------
+-- TIR AUTOMATIQUE.
+--
+-- Le client n'envoie qu'un interrupteur : c'est le serveur qui tire, par le même
+-- chemin que le tir manuel (performShot), donc avec les mêmes verrous — une
+-- seule balle en vol, cooldown, relevage des figurines. Aucun raccourci : le tir
+-- auto ne va pas plus vite que ce que le jeu autorise à la main.
+-------------------------------------------------------------------------------
+local function autoShootUnlocked(session: Session): boolean
+	return Config.autoShootUnlockedBy(session.data.totalEarned, session.passes.AutoShoot == true)
+end
+
+rAutoShoot.OnServerEvent:Connect(function(player, on)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(on) ~= "boolean" then return end
+	if on and not autoShootUnlocked(session) then
+		rToast:FireClient(player, "Tir automatique verrouillé (passe Robux, ou "
+			.. Config.abbreviate(Config.AutoShoot.freeUnlockEarned) .. " $ gagnés)")
+		return
+	end
+	session.data.autoShoot = on
+	pushStats(player)
+end)
+
+task.spawn(function()
+	local A = Config.AutoShoot
+	local due: { Player } = {}
+	while true do
+		task.wait(A.interval)
+		-- Instantané de la liste avant d'agir : performShot suit la balle pendant
+		-- plusieurs secondes, et un joueur qui se déconnecte pendant ce temps
+		-- retire son entrée de `sessions` — modifier la table qu'on parcourt
+		-- casse l'itération.
+		table.clear(due)
+		for player, session in sessions do
+			if session.data.autoShoot and session.field and autoShootUnlocked(session) then
+				table.insert(due, player)
+			end
+		end
+		for _, player in due do
+			local session = sessions[player]
+			if session then
+				-- Balayage : l'angle avance d'un pas à chaque tir et repart de
+				-- l'autre bord, pour couvrir toute la largeur du terrain plutôt
+				-- que de retaper la même colonne de figurines.
+				local maxA = Config.Shot.maxAngle
+				local a = (session.autoAngle or -maxA) + A.sweepStep
+				if a > maxA then a = -maxA end
+				session.autoAngle = a
+				-- En coroutine : performShot suit la balle jusqu'à l'impact, un
+				-- appel direct ferait tirer les joueurs chacun leur tour.
+				task.spawn(performShot, player, a, A.charge, true)
+			end
+		end
+	end
+end)
+
+-------------------------------------------------------------------------------
+-- DONS ENTRE JOUEURS.
+--
+-- Transfert strict : ce qui est retiré à l'un est ajouté à l'autre, dans la même
+-- opération. Rien n'est créé. Le client n'envoie qu'une intention — le serveur
+-- relit tout depuis SA copie des données (montant disponible, carte réellement
+-- possédée), sinon un client modifié offrirait un argent qu'il n'a pas.
+-------------------------------------------------------------------------------
+local function giftTarget(player: Player, payload): (Player?, Session?)
+	if typeof(payload.to) ~= "number" then return nil, nil end
+	local target = Players:GetPlayerByUserId(payload.to)
+	if not target or target == player then return nil, nil end
+	return target, sessions[target]
+end
+
+rGift.OnServerEvent:Connect(function(player, payload)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+
+	local now = os.clock()
+	if now - session.lastGift < Config.Gift.cooldown then
+		rToast:FireClient(player, "Un don toutes les " .. Config.Gift.cooldown .. " s")
+		return
+	end
+
+	local target, tSession = giftTarget(player, payload)
+	if not target or not tSession then
+		rToast:FireClient(player, "Ce joueur n'est plus sur le serveur")
+		return
+	end
+
+	if payload.kind == "money" then
+		local amount = payload.amount
+		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
+		amount = math.floor(amount)
+		local G = Config.Gift
+		local maxGift = math.floor(session.data.money * G.maxShare)
+		if amount < G.minMoney or maxGift < G.minMoney then
+			rToast:FireClient(player, "Montant trop faible")
+			return
+		end
+		if amount > maxGift then
+			-- Plafond à une fraction de sa fortune : on n'annule pas le don, on
+			-- le rabote, sinon un doigt qui glisse sur le clavier ne donne rien.
+			amount = maxGift
+		end
+		session.data.money -= amount
+		tSession.data.money += amount
+		session.lastGift = now
+
+		updateLeaderstats(session, player)
+		updateLeaderstats(tSession, target)
+		pushStats(player)
+		pushStats(target)
+		rToast:FireClient(player, "Offert à " .. target.DisplayName .. " : " .. Config.abbreviate(amount) .. " $")
+		rToast:FireClient(target, player.DisplayName .. " t'offre " .. Config.abbreviate(amount) .. " $ !")
+
+	elseif payload.kind == "card" then
+		local i = payload.cardIndex
+		if typeof(i) ~= "number" then return end
+		i = math.floor(i)
+		local card = session.data.cards[i]
+		if not card then
+			rToast:FireClient(player, "Ce joueur n'est plus dans ta collection")
+			return
+		end
+		-- Une carte, pas une copie : elle quitte vraiment la collection du
+		-- donneur. Un don qui laisserait l'original en place serait une machine à
+		-- dupliquer les Divins.
+		table.remove(session.data.cards, i)
+		table.insert(tSession.data.cards, { name = card.name, rarity = card.rarity })
+		session.lastGift = now
+
+		local r = Config.rarity(card.rarity)
+		repopulate(session)
+		repopulate(tSession)
+		pushCollection(player)
+		pushCollection(target)
+		pushStats(player)
+		pushStats(target)
+		rToast:FireClient(player, "Offert à " .. target.DisplayName .. " : " .. card.name .. " (" .. r.name .. ")")
+		rToast:FireClient(target, player.DisplayName .. " t'offre " .. card.name .. " (" .. r.name .. ") !")
+	end
+end)
+
+-- Liste des joueurs connectés, pour choisir un destinataire. Rediffusée à chaque
+-- arrivée et chaque départ : une liste périmée ferait échouer le don au moment
+-- où le joueur clique.
+local function pushRoster()
+	local list = {}
+	for _, p in Players:GetPlayers() do
+		table.insert(list, { userId = p.UserId, name = p.DisplayName })
+	end
+	rRoster:FireAllClients(list)
+end
+
+-------------------------------------------------------------------------------
+-- COMMANDES ADMIN.
+--
+-- Réservées aux UserId de Config.Admins, contrôlés ICI : le champ `isAdmin`
+-- envoyé au client ne sert qu'à afficher le panneau, il n'autorise rien.
+-------------------------------------------------------------------------------
+rAdmin.OnServerEvent:Connect(function(player, payload)
+	if not Config.isAdmin(player.UserId) then return end
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+
+	if payload.kind == "money" then
+		local amount = payload.amount
+		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
+		session.data.money += math.floor(amount)
+		session.data.totalEarned += math.max(0, math.floor(amount))
+		updateLeaderstats(session, player)
+		pushStats(player)
+		rToast:FireClient(player, "[admin] +" .. Config.abbreviate(amount) .. " $")
+
+	elseif payload.kind == "power" then
+		local amount = payload.amount
+		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
+		session.data.power += math.floor(amount)
+		updateLeaderstats(session, player)
+		pushStats(player)
+		rToast:FireClient(player, "[admin] +" .. Config.abbreviate(amount) .. " puissance")
+
+	elseif payload.kind == "card" then
+		local rarity = payload.rarity
+		if typeof(rarity) ~= "string" or Config.rarity(rarity).key ~= rarity then return end
+		local count = math.clamp(math.floor(tonumber(payload.count) or 1), 1, 50)
+		local name = if typeof(payload.name) == "string" and payload.name ~= "" then payload.name else nil
+		for _ = 1, count do
+			table.insert(session.data.cards, {
+				name = name or Config.randomPlayerName(rng),
+				rarity = rarity,
+			})
+		end
+		repopulate(session)
+		pushCollection(player)
+		pushStats(player)
+		rToast:FireClient(player, "[admin] +" .. count .. " " .. Config.rarity(rarity).name)
+	end
 end)
 
 -------------------------------------------------------------------------------
@@ -758,6 +1003,7 @@ local function onPlayerAdded(player: Player)
 	local session: Session = {
 		data = data,
 		field = nil,
+		userId = player.UserId,
 		slot = slot,
 		passes = {},
 		lastTrain = 0,
@@ -766,6 +1012,8 @@ local function onPlayerAdded(player: Player)
 		shootingUntil = 0,
 		repopulatePending = false,
 		chargeStartAt = nil,
+		autoAngle = nil,
+		lastGift = 0,
 		eraseArmedUntil = 0,
 		spawnPos = nil,
 		props = nil,
@@ -862,11 +1110,20 @@ end
 -- (cf. Config.ErasureRequests). Traitées en tâche de fond, espacées.
 Erasure.processPendingRequests()
 
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
+Players.PlayerAdded:Connect(function(p)
+	onPlayerAdded(p)
+	pushRoster()
+end)
+Players.PlayerRemoving:Connect(function(p)
+	onPlayerRemoving(p)
+	-- Après le retrait : PlayerRemoving tire avant que le joueur ne quitte la
+	-- liste, un pushRoster immédiat le renverrait comme destinataire possible.
+	task.defer(pushRoster)
+end)
 for _, p in Players:GetPlayers() do
 	task.spawn(onPlayerAdded, p)
 end
+pushRoster()
 
 game:BindToClose(function()
 	for player, session in sessions do
@@ -953,7 +1210,10 @@ do
 			"[BabyFoot] %d game pass sans ID (non vendus) : %s — renseigne Config.PassIds, cf. PASSES.md",
 			#missing, table.concat(missing, ", ")))
 	else
-		print("[BabyFoot] Les 6 game passes sont configurés.")
+		-- Compté, pas écrit en dur : le nombre de passes a déjà changé une fois.
+		local total = 0
+		for _ in Config.Passes do total += 1 end
+		print(string.format("[BabyFoot] Les %d game passes sont configurés.", total))
 	end
 end
 

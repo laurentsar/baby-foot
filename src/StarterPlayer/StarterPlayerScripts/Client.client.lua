@@ -25,6 +25,10 @@ local rShotResult = Remotes.get("ShotResult")
 local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
+local rAutoShoot = Remotes.get("AutoShoot")
+local rGift = Remotes.get("Gift")
+local rAdmin = Remotes.get("Admin")
+local rRoster = Remotes.get("Roster")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -422,25 +426,48 @@ collecToggle.Size = UDim2.fromOffset(200, 40)
 collecToggle.Position = UDim2.fromOffset(16, 254)
 collecToggle.TextSize = 16
 
-local collecPanel = make("Frame", {
-	Size = UDim2.fromOffset(320, 420), Position = UDim2.fromOffset(16, 302),
-	BackgroundColor3 = BG, BackgroundTransparency = 0.05,
-	BorderSizePixel = 0, Visible = false,
-}, gui)
-corner(collecPanel, 14)
-make("UIStroke", { Color = Color3.fromRGB(150, 110, 235), Thickness = 1.5, Transparency = 0.4 }, collecPanel)
+-- Les panneaux de la colonne de gauche occupent tous le même rectangle : un seul
+-- peut être ouvert à la fois, sinon ils se recouvrent.
+local PANEL_RECT = { x = 16, y = 344, w = 320, h = 380 }
+local panels: { Frame } = {}
 
-local collecScroll = make("ScrollingFrame", {
-	Size = UDim2.new(1, -16, 1, -16), Position = UDim2.fromOffset(8, 8),
-	BackgroundTransparency = 1, BorderSizePixel = 0,
-	CanvasSize = UDim2.new(0, 0, 0, 0), ScrollBarThickness = 6,
-	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-}, collecPanel)
-make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, collecScroll)
+local function sidePanel(stroke: Color3): Frame
+	local p = make("Frame", {
+		Size = UDim2.fromOffset(PANEL_RECT.w, PANEL_RECT.h),
+		Position = UDim2.fromOffset(PANEL_RECT.x, PANEL_RECT.y),
+		BackgroundColor3 = BG, BackgroundTransparency = 0.05,
+		BorderSizePixel = 0, Visible = false,
+	}, gui)
+	corner(p, 14)
+	make("UIStroke", { Color = stroke, Thickness = 1.5, Transparency = 0.4 }, p)
+	table.insert(panels, p)
+	return p
+end
 
-collecToggle.MouseButton1Click:Connect(function()
-	collecPanel.Visible = not collecPanel.Visible
-end)
+local function togglePanel(p: Frame)
+	local show = not p.Visible
+	for _, other in panels do
+		other.Visible = false
+	end
+	p.Visible = show
+end
+
+local function panelScroll(parent: Frame): ScrollingFrame
+	local s = make("ScrollingFrame", {
+		Size = UDim2.new(1, -16, 1, -16), Position = UDim2.fromOffset(8, 8),
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0), ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	}, parent)
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, s)
+	return s
+end
+
+local collecPanel = sidePanel(Color3.fromRGB(150, 110, 235))
+
+local collecScroll = panelScroll(collecPanel)
+
+collecToggle.MouseButton1Click:Connect(function() togglePanel(collecPanel) end)
 
 local function collecLine(text: string, color: Color3, order: number, height: number)
 	make("TextLabel", {
@@ -485,6 +512,284 @@ rCollection.OnClientEvent:Connect(function(c)
 		collecLine(string.format("Emplacements débloqués : %d/%d (boutique)",
 			c.unlockedSlots, c.maxSlots), Color3.fromRGB(200, 200, 215), order, 20)
 	end
+end)
+
+-------------------------------------------------------------------------------
+-- INDEX / DONS / ADMIN : deuxième rangée de boutons, sous COLLECTION.
+-------------------------------------------------------------------------------
+local function rowButton(text: string, color: Color3, x: number, w: number): TextButton
+	local b = button(text, color, gui)
+	b.Size = UDim2.fromOffset(w, 36)
+	b.Position = UDim2.fromOffset(x, 300)
+	b.TextSize = 14
+	return b
+end
+
+local indexToggle = rowButton("📕 INDEX", Color3.fromRGB(90, 180, 235), 16, 98)
+local giftToggle = rowButton("🎁 DONS", Color3.fromRGB(235, 130, 170), 122, 98)
+local adminToggle = rowButton("🛠 ADMIN", Color3.fromRGB(200, 200, 210), 228, 98)
+adminToggle.Visible = false   -- réaffiché seulement pour un UserId de Config.Admins
+
+-------------------------------------------------------------------------------
+-- INDEX : le catalogue complet des joueurs recrutables, et ce qu'on en a.
+--
+-- Les 256 lignes sont créées une seule fois, à la première ouverture, puis
+-- seulement mises à jour : les recréer à chaque recrutement ferait repasser une
+-- mise en page complète du ScrollingFrame pour une ligne qui change.
+-------------------------------------------------------------------------------
+local indexPanel = sidePanel(Color3.fromRGB(90, 180, 235))
+local indexScroll = panelScroll(indexPanel)
+local indexRows: { [string]: TextLabel } = {}
+local indexHeader: TextLabel? = nil
+local lastIndex: { [string]: string } = {}
+
+local function buildIndexRows()
+	if indexHeader then return end
+	indexHeader = make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+		Text = "INDEX", Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 0,
+	}, indexScroll)
+	for i, name in Config.catalogue() do
+		indexRows[name] = make("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1,
+			Text = name, Font = Enum.Font.GothamBold, TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(90, 92, 105),
+			LayoutOrder = i,
+		}, indexScroll)
+	end
+end
+
+local function refreshIndex()
+	if not indexHeader then return end
+	local owned = 0
+	for name, row in indexRows do
+		local rarityKey = lastIndex[name]
+		if rarityKey then
+			owned += 1
+			local r = Config.rarity(rarityKey)
+			row.Text = name .. "  —  " .. r.name
+			row.TextColor3 = r.color
+		else
+			-- Jamais recruté : le nom reste caché, c'est ce qui donne envie de
+			-- relancer les dés.
+			row.Text = "???"
+			row.TextColor3 = Color3.fromRGB(90, 92, 105)
+		end
+	end
+	local total = Config.catalogueSize()
+	;(indexHeader :: TextLabel).Text = string.format("INDEX  —  %d/%d (%d%%)",
+		owned, total, math.floor(owned / total * 100))
+end
+
+indexToggle.MouseButton1Click:Connect(function()
+	buildIndexRows()
+	refreshIndex()
+	togglePanel(indexPanel)
+end)
+
+-------------------------------------------------------------------------------
+-- DONS : offrir de l'argent ou un joueur à quelqu'un du serveur.
+-------------------------------------------------------------------------------
+local giftPanel = sidePanel(Color3.fromRGB(235, 130, 170))
+local giftScroll = panelScroll(giftPanel)
+local giftTarget: number? = nil
+local giftTargetName = ""
+local roster: { any } = {}
+local lastCards: { any } = {}
+
+local function giftLine(text: string, color: Color3, order: number, height: number)
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1,
+		Text = text, Font = Enum.Font.GothamBold, TextScaled = true,
+		TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+	}, giftScroll)
+end
+
+local refreshGift  -- déclaré avant, les callbacks des boutons le rappellent
+
+refreshGift = function()
+	giftScroll:ClearAllChildren()
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, giftScroll)
+	local order = 1
+
+	giftLine("À QUI ?", GOLD, order, 22); order += 1
+	local others = 0
+	for _, entry in roster do
+		if entry.userId ~= player.UserId then
+			others += 1
+			local selected = giftTarget == entry.userId
+			local b = button(if selected then "✓ " .. entry.name else entry.name,
+				if selected then Color3.fromRGB(120, 220, 140) else Color3.fromRGB(70, 74, 92), giftScroll)
+			b.Size = UDim2.new(1, 0, 0, 32)
+			b.TextSize = 14
+			b.LayoutOrder = order
+			b.TextColor3 = if selected then Color3.fromRGB(15, 15, 20) else Color3.fromRGB(235, 235, 245)
+			b.MouseButton1Click:Connect(function()
+				giftTarget = entry.userId
+				giftTargetName = entry.name
+				refreshGift()
+			end)
+			order += 1
+		end
+	end
+	if others == 0 then
+		giftLine("Personne d'autre sur le serveur.", Color3.fromRGB(180, 180, 200), order, 20)
+		order += 1
+		return
+	end
+	if not giftTarget then
+		giftLine("Choisis un destinataire ci-dessus.", Color3.fromRGB(180, 180, 200), order, 20)
+		return
+	end
+
+	giftLine("💰 ARGENT (max " .. math.floor(Config.Gift.maxShare * 100) .. "% du tien)",
+		GOLD, order, 22)
+	order += 1
+	local amountBox = make("TextBox", {
+		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = PANEL,
+		TextColor3 = Color3.fromRGB(240, 240, 250), Font = Enum.Font.GothamBold,
+		TextScaled = true, PlaceholderText = "Montant…", Text = "",
+		ClearTextOnFocus = false, BorderSizePixel = 0, LayoutOrder = order,
+	}, giftScroll)
+	corner(amountBox, 8)
+	order += 1
+
+	local sendMoney = button("OFFRIR À " .. string.upper(giftTargetName), Color3.fromRGB(235, 170, 60), giftScroll)
+	sendMoney.Size = UDim2.new(1, 0, 0, 34)
+	sendMoney.TextSize = 14
+	sendMoney.LayoutOrder = order
+	sendMoney.MouseButton1Click:Connect(function()
+		local amount = tonumber(amountBox.Text)
+		if not amount then return end
+		rGift:FireServer({ to = giftTarget, kind = "money", amount = amount })
+		amountBox.Text = ""
+	end)
+	order += 1
+
+	giftLine("👤 UN JOUEUR DE TA COLLECTION", GOLD, order, 22); order += 1
+	if #lastCards == 0 then
+		giftLine("Collection vide.", Color3.fromRGB(180, 180, 200), order, 20)
+		return
+	end
+	for i, card in lastCards do
+		local r = Config.rarity(card.rarity)
+		local b = button(card.name .. " — " .. r.name, Color3.fromRGB(70, 74, 92), giftScroll)
+		b.Size = UDim2.new(1, 0, 0, 30)
+		b.TextSize = 13
+		b.TextColor3 = r.color
+		b.LayoutOrder = order
+		b.MouseButton1Click:Connect(function()
+			-- L'index vaut pour la collection telle que le serveur l'a envoyée ;
+			-- lui-même revérifie que la carte est bien là avant de la transférer.
+			rGift:FireServer({ to = giftTarget, kind = "card", cardIndex = i })
+		end)
+		order += 1
+	end
+end
+
+giftToggle.MouseButton1Click:Connect(function()
+	refreshGift()
+	togglePanel(giftPanel)
+end)
+
+rRoster.OnClientEvent:Connect(function(list)
+	roster = list
+	-- Le destinataire choisi vient peut-être de partir.
+	local stillHere = false
+	for _, e in roster do
+		if e.userId == giftTarget then stillHere = true end
+	end
+	if not stillHere then giftTarget = nil end
+	if giftPanel.Visible then refreshGift() end
+end)
+
+-------------------------------------------------------------------------------
+-- ADMIN : s'attribuer argent, puissance et cartes. Le bouton n'apparaît que
+-- pour les UserId de Config.Admins, et le serveur revérifie chaque commande.
+-------------------------------------------------------------------------------
+local adminPanel = sidePanel(Color3.fromRGB(200, 200, 210))
+local adminScroll = panelScroll(adminPanel)
+
+local function adminHeader(text: string, order: number)
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1,
+		Text = text, Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+	}, adminScroll)
+end
+
+local function adminBox(placeholder: string, order: number): TextBox
+	local b = make("TextBox", {
+		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = PANEL,
+		TextColor3 = Color3.fromRGB(240, 240, 250), Font = Enum.Font.GothamBold,
+		TextScaled = true, PlaceholderText = placeholder, Text = "",
+		ClearTextOnFocus = false, BorderSizePixel = 0, LayoutOrder = order,
+	}, adminScroll)
+	corner(b, 8)
+	return b
+end
+
+adminHeader("💰 ARGENT / PUISSANCE", 1)
+local adminAmount = adminBox("Montant (ex. 1e18)", 2)
+local adminMoneyBtn = button("+ ARGENT", Color3.fromRGB(235, 170, 60), adminScroll)
+adminMoneyBtn.Size = UDim2.new(1, 0, 0, 32); adminMoneyBtn.TextSize = 14; adminMoneyBtn.LayoutOrder = 3
+adminMoneyBtn.MouseButton1Click:Connect(function()
+	local a = tonumber(adminAmount.Text)
+	if a then rAdmin:FireServer({ kind = "money", amount = a }) end
+end)
+local adminPowerBtn = button("+ PUISSANCE", Color3.fromRGB(120, 200, 120), adminScroll)
+adminPowerBtn.Size = UDim2.new(1, 0, 0, 32); adminPowerBtn.TextSize = 14; adminPowerBtn.LayoutOrder = 4
+adminPowerBtn.MouseButton1Click:Connect(function()
+	local a = tonumber(adminAmount.Text)
+	if a then rAdmin:FireServer({ kind = "power", amount = a }) end
+end)
+
+adminHeader("👤 CARTES", 5)
+local adminCount = adminBox("Combien ? (1-50)", 6)
+local adminName = adminBox("Nom précis (vide = au hasard)", 7)
+local adminOrder = 8
+for _, r in Config.Rarities do
+	local b = button("+ " .. string.upper(r.name), r.color, adminScroll)
+	b.Size = UDim2.new(1, 0, 0, 30); b.TextSize = 13; b.LayoutOrder = adminOrder
+	b.MouseButton1Click:Connect(function()
+		rAdmin:FireServer({
+			kind = "card",
+			rarity = r.key,
+			count = tonumber(adminCount.Text) or 1,
+			name = adminName.Text,
+		})
+	end)
+	adminOrder += 1
+end
+
+adminToggle.MouseButton1Click:Connect(function() togglePanel(adminPanel) end)
+
+-------------------------------------------------------------------------------
+-- TIR AUTOMATIQUE : interrupteur au-dessus du bouton TIRER.
+-------------------------------------------------------------------------------
+local autoBtn = button("🤖 AUTO", Color3.fromRGB(120, 130, 150), bottom)
+autoBtn.Size = UDim2.fromOffset(200, 32)
+autoBtn.Position = UDim2.new(1, -224, 0, 4)
+autoBtn.TextSize = 15
+autoBtn.Visible = false
+local autoOn = false
+autoBtn.MouseButton1Click:Connect(function()
+	rAutoShoot:FireServer(not autoOn)
+end)
+
+-- Deuxième abonnement à Collection : le premier (plus haut) remplit le panneau
+-- COLLECTION, celui-ci alimente l'index et la liste de cartes offrables. Les
+-- séparer évite de mélanger deux affichages sans rapport dans un seul callback.
+rCollection.OnClientEvent:Connect(function(c)
+	lastIndex = c.index or {}
+	lastCards = c.cards or {}
+	if indexPanel.Visible then refreshIndex() end
+	if giftPanel.Visible then refreshGift() end
 end)
 
 -------------------------------------------------------------------------------
@@ -575,6 +880,15 @@ rStats.OnClientEvent:Connect(function(s)
 	rebirthBtn.Text = string.format("🔄 Renaître → x%s\nCoût : %s $",
 		Config.abbreviate(s.nextRebirthMult), Config.abbreviate(s.rebirthCost))
 	rebirthBtn.BackgroundColor3 = s.money >= s.rebirthCost and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 80, 110)
+
+	-- Tir automatique : le bouton n'apparaît qu'une fois débloqué (passe Robux ou
+	-- seuil d'argent cumulé), et son état vient du serveur, jamais du clic local.
+	autoOn = s.autoShootOn == true
+	autoBtn.Visible = s.autoShootUnlocked == true
+	autoBtn.Text = if autoOn then "🤖 AUTO : ON" else "🤖 AUTO : OFF"
+	autoBtn.BackgroundColor3 = if autoOn then Color3.fromRGB(90, 220, 140) else Color3.fromRGB(120, 130, 150)
+
+	adminToggle.Visible = s.isAdmin == true
 end)
 
 toast("⚽ Lance les 🎲 pour recruter tes joueurs, place-les sur les 4 bases (11 max), "

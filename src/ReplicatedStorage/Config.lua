@@ -51,6 +51,16 @@ Config.Bases = {
 	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
+-- PONT : la passerelle qui relie les 4 bases entre elles, dans l'axe du
+-- terrain. Purement visuelle, comme les tiges : la balle est simulée en
+-- Anchored sans collision, et laisser marcher dessus mettrait le joueur au
+-- milieu des figurines qu'il est censé viser de derrière la ligne.
+Config.Bridge = {
+	width = 5,             -- largeur du tablier
+	railHeight = 2.2,      -- hauteur des garde-corps
+	walkable = false,      -- passe à true pour en faire une vraie passerelle
+}
+
 Config.MaxSquad = 11        -- plafond de base : chaque renaissance l'augmente (voir extraSlotsFromRebirths)
 -- L'équipe est COMPLÈTE dès le départ : 11 emplacements ouverts, 11 joueurs
 -- posés. Les acheter un par un laissait le terrain à moitié vide et donnait
@@ -143,6 +153,33 @@ Config.NamePool = {
 		"Muraille", "Tonnerre", "Éclair", "Cyclone", "Marteau", "Faucon",
 		"Requin", "Vortex", "Dragon", "Guépard" },
 }
+
+-------------------------------------------------------------------------------
+-- INDEX : le catalogue complet des joueurs recrutables.
+--
+-- Il n'existe pas de « liste des 200 joueurs » quelque part : une carte est un
+-- prénom du pool + un nom du pool, tirés aux dés. Le catalogue, c'est donc
+-- l'ensemble des combinaisons possibles — 16 x 16 = 256 joueurs. L'index dit,
+-- pour chacun, s'il a déjà été recruté et dans quelle meilleure rareté.
+--
+-- Construit une seule fois au chargement du module : la liste ne change jamais,
+-- et le client la parcourt à chaque ouverture du panneau.
+-------------------------------------------------------------------------------
+local CATALOGUE: { string } = {}
+for _, first in Config.NamePool.first do
+	for _, last in Config.NamePool.last do
+		table.insert(CATALOGUE, first .. " " .. last)
+	end
+end
+table.sort(CATALOGUE)
+
+function Config.catalogue(): { string }
+	return CATALOGUE
+end
+
+function Config.catalogueSize(): number
+	return #CATALOGUE
+end
 
 -------------------------------------------------------------------------------
 -- DÉS : on paie, on lance, on obtient un joueur.
@@ -256,6 +293,7 @@ Config.PassIds = {
 	LuckyDice   = 0,
 	BallSpeedX2 = 0,
 	BigField    = 0,
+	AutoShoot   = 0,
 }
 
 Config.Passes = {
@@ -265,6 +303,7 @@ Config.Passes = {
 	LuckyDice    = { id = Config.PassIds.LuckyDice,   price = 299, label = "Dés Chanceux",     desc = "Bien moins de communs : les raretés sortent beaucoup plus souvent" },
 	BallSpeedX2  = { id = Config.PassIds.BallSpeedX2, price = 129, label = "Vitesse Balle x2", desc = "La balle part deux fois plus vite" },
 	BigField     = { id = Config.PassIds.BigField,    price = 179, label = "Grand Terrain",    desc = "Le fond du baby-foot est deux fois plus grand (but plus facile)" },
+	AutoShoot    = { id = Config.PassIds.AutoShoot,   price = 349, label = "Tir Automatique",  desc = "Tire tout seul, en balayant le terrain. Gratuit pour tous à 500Qa gagnés" },
 }
 
 -- Passes encore sans ID, pour l'avertissement au démarrage et l'affichage boutique.
@@ -298,6 +337,73 @@ Config.ErasureRequests = {} :: { number }
 -- clic prévient, le second dans cette fenêtre exécute. Une suppression est
 -- définitive, elle ne doit pas partir sur un clic malheureux.
 Config.ErasureConfirmWindow = 30
+
+-------------------------------------------------------------------------------
+-- TIR AUTOMATIQUE
+--
+-- Deux façons de l'obtenir, et elles donnent exactement la même chose :
+--   - la passe Robux « Tir Automatique », tout de suite ;
+--   - gratuitement, à partir de `freeUnlockEarned` d'argent CUMULÉ.
+--
+-- Le seuil porte sur le cumul gagné (totalEarned), pas sur l'argent en poche :
+-- une renaissance remet l'argent à zéro, et un déblocage qui se reperd à la
+-- renaissance suivante serait incompréhensible.
+--
+-- Le serveur reste maître : il ne fait qu'appeler son propre code de tir, avec
+-- les mêmes verrous (une balle en vol, cooldown, relevage des figurines). Le
+-- client n'envoie qu'un interrupteur marche/arrêt.
+-------------------------------------------------------------------------------
+Config.AutoShoot = {
+	freeUnlockEarned = 500e15,  -- 500 Qa cumulés (Qa = 1e15, cf. Config.abbreviate)
+	interval = 0.35,            -- fréquence des tentatives de tir
+	-- Charge appliquée aux tirs automatiques. Dans le palier « TRÈS BIEN » sans
+	-- être parfaite : le tir auto est un confort, pas un tir meilleur que le
+	-- meilleur tir à la main.
+	charge = 0.95,
+	-- Balayage : l'angle avance de ce pas à chaque tir, puis repart de l'autre
+	-- bord. Sans ça le tir auto taperait toujours la même colonne de figurines.
+	sweepStep = 9,
+}
+
+function Config.autoShootUnlockedBy(totalEarned: number, hasPass: boolean): boolean
+	return hasPass or totalEarned >= Config.AutoShoot.freeUnlockEarned
+end
+
+-------------------------------------------------------------------------------
+-- DONS ENTRE JOUEURS
+--
+-- Un joueur peut offrir de l'argent ou une carte à un autre joueur du même
+-- serveur. C'est du transfert, jamais de la création : ce qui part de l'un
+-- arrive à l'autre, à l'unité près.
+--
+-- Attention, c'est structurellement exploitable : rien n'empêche quelqu'un de
+-- lancer un second compte, de le faire farmer et de tout transférer au premier.
+-- Le cooldown et le plafond limitent la casse sans supprimer le problème.
+-------------------------------------------------------------------------------
+Config.Gift = {
+	cooldown = 5,          -- délai serveur min entre deux dons du même joueur
+	maxShare = 0.5,        -- part max de son argent offerte en une fois
+	minMoney = 1,
+}
+
+-------------------------------------------------------------------------------
+-- ADMINS : UserId autorisés à s'attribuer argent et cartes.
+--
+-- Pour trouver le tien : ouvre ton profil Roblox, l'UserId est le nombre dans
+-- l'URL (roblox.com/users/ 1234567890 /profile).
+--
+-- Tant que la liste est vide, le panneau admin n'existe pour personne. Le
+-- contrôle est fait SUR LE SERVEUR à chaque commande : un client modifié qui
+-- s'affiche le panneau ne peut rien en tirer.
+-------------------------------------------------------------------------------
+Config.Admins = {} :: { number }
+
+function Config.isAdmin(userId: number): boolean
+	for _, id in Config.Admins do
+		if id == userId then return true end
+	end
+	return false
+end
 
 -------------------------------------------------------------------------------
 -- ENTRAÎNEMENT
