@@ -32,6 +32,7 @@ local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
 local rErase = Remotes.get("EraseData")
 local rAutoShoot = Remotes.get("AutoShoot")
+local rAutoRoll = Remotes.get("AutoRoll")
 local rGift = Remotes.get("Gift")
 local rAdmin = Remotes.get("Admin")
 local rRoster = Remotes.get("Roster")
@@ -189,6 +190,9 @@ local function buildStats(session: Session)
 		passes = session.passes,
 		autoShootUnlocked = Config.autoShootUnlockedBy(d.totalEarned, session.passes.AutoShoot == true),
 		autoShootOn = d.autoShoot == true,
+		autoRollOwned = d.autoRollOwned == true,
+		autoRollOn = d.autoRoll == true,
+		autoRollCost = Config.AutoRoll.unlockCost,
 		-- Contrôlé aussi à chaque commande côté serveur : ce champ ne sert qu'à
 		-- afficher ou non le panneau, il n'autorise rien par lui-même.
 		isAdmin = Config.isAdmin(session.userId),
@@ -814,19 +818,25 @@ end)
 local MAX_CARDS = 200  -- garde-fou : une collection illimitée ferait grossir la
                        -- sauvegarde sans fin (limite DataStore par clé).
 
-rRoll.OnServerEvent:Connect(function(player)
+-- Corps du tirage, partagé par le bouton RECRUTER et par le roulement
+-- automatique. `silent` = tirage auto : on ne prévient pas d'un manque d'argent
+-- à chaque tentative, sinon l'écran serait noyé de messages.
+-- Retourne true si un lancer a bien été payé et effectué.
+local function performRoll(player: Player, silent: boolean): boolean
 	local session = sessions[player]
-	if not session then return end
+	if not session then return false end
 	local now = os.clock()
-	if now - session.lastRoll < Config.Dice.cooldown then return end
+	if now - session.lastRoll < Config.Dice.cooldown then return false end
 	session.lastRoll = now
 
 	local d = session.data
 	local cost = math.floor(Config.diceCost(d.rolls, session.passes.VIP == true) * upgradeCostMult(session))
 	if d.money < cost then
-		rToast:FireClient(player, "Pas assez d'argent pour lancer les dés ("
-			.. Config.abbreviate(cost) .. " $)")
-		return
+		if not silent then
+			rToast:FireClient(player, "Pas assez d'argent pour lancer les dés ("
+				.. Config.abbreviate(cost) .. " $)")
+		end
+		return false
 	end
 	d.money -= cost
 	d.rolls += 1
@@ -852,9 +862,64 @@ rRoll.OnServerEvent:Connect(function(player)
 	pushStats(player)
 	pushCollection(player)
 	rDiceResult:FireClient(player, { card = card, cost = cost })
+	return true
+end
+
+rRoll.OnServerEvent:Connect(function(player)
+	performRoll(player, false)
 end)
 
 -------------------------------------------------------------------------------
+-- ROULEMENT AUTOMATIQUE : le bouton RECRUTER relance tout seul.
+--
+-- Déblocage payant une fois pour toutes (Config.AutoRoll.unlockCost), puis
+-- simple interrupteur. Comme pour le tir automatique, c'est le serveur qui
+-- lance, par le même chemin que le bouton — même cooldown, même prix, même
+-- tirage. Aucun raccourci : ça évite d'appuyer, pas de payer.
+-------------------------------------------------------------------------------
+rAutoRoll.OnServerEvent:Connect(function(player, on)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(on) ~= "boolean" then return end
+	local d = session.data
+
+	if on and not d.autoRollOwned then
+		-- Premier allumage : c'est l'achat. Le client ne dit jamais « j'ai payé »,
+		-- c'est le serveur qui débite depuis sa propre copie de l'argent.
+		local cost = Config.AutoRoll.unlockCost
+		if d.money < cost then
+			rToast:FireClient(player, "Roulement auto : il manque de l'argent ("
+				.. Config.abbreviate(cost) .. " $)")
+			return
+		end
+		d.money -= cost
+		d.autoRollOwned = true
+		updateLeaderstats(session, player)
+		rToast:FireClient(player, "🔁 Roulement automatique débloqué !")
+	end
+
+	d.autoRoll = on
+	pushStats(player)
+end)
+
+task.spawn(function()
+	local due: { Player } = {}
+	while true do
+		task.wait(Config.AutoRoll.interval)
+		-- Instantané avant d'agir : performRoll republie l'état et un joueur peut
+		-- se déconnecter entre-temps, ce qui retire son entrée de `sessions`.
+		table.clear(due)
+		for player, session in sessions do
+			if session.data.autoRoll and session.data.autoRollOwned then
+				table.insert(due, player)
+			end
+		end
+		for _, player in due do
+			if sessions[player] then performRoll(player, true) end
+		end
+	end
+end)
+
 -- RENAISSANCE : reset argent + upgrades, +1 renaissance (mult permanent).
 -------------------------------------------------------------------------------
 rRebirth.OnServerEvent:Connect(function(player)

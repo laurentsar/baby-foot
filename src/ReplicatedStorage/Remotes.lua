@@ -14,6 +14,7 @@ local EVENT_NAMES = {
 	"EraseData",    -- client -> serveur : droit à l'oubli (2 clics pour confirmer)
 	"RollDice",     -- client -> serveur : lance les dés pour recruter un joueur
 	"AutoShoot",    -- client -> serveur : interrupteur du tir automatique (bool)
+	"AutoRoll",     -- client -> serveur : interrupteur du roulement auto des dés (bool)
 	"Gift",         -- client -> serveur : {to = userId, kind = "money"|"card", amount|cardIndex}
 	"Admin",        -- client -> serveur : commande admin (contrôlée serveur)
 	"Roster",       -- serveur -> client : joueurs connectés, pour le panneau de dons

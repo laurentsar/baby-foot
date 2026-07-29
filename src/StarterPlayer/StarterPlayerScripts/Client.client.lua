@@ -26,6 +26,7 @@ local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
 local rAutoShoot = Remotes.get("AutoShoot")
+local rAutoRoll = Remotes.get("AutoRoll")
 local rGift = Remotes.get("Gift")
 local rAdmin = Remotes.get("Admin")
 local rRoster = Remotes.get("Roster")
@@ -407,11 +408,25 @@ end)
 -- Les joueurs de foot s'obtiennent en lançant les dés ; les meilleurs sont
 -- automatiquement placés sur les bases, dans la limite des emplacements.
 -------------------------------------------------------------------------------
+-- RECRUTER rétréci pour loger l'interrupteur du roulement auto à sa droite :
+-- l'ensemble occupe la même largeur qu'avant (16 -> 216).
 local diceBtn = button("🎲 RECRUTER", Color3.fromRGB(235, 170, 60), gui)
-diceBtn.Size = UDim2.fromOffset(200, 62)
+diceBtn.Size = UDim2.fromOffset(148, 62)
 diceBtn.Position = UDim2.fromOffset(16, 156)
-diceBtn.TextSize = 20
+diceBtn.TextSize = 18
 diceBtn.MouseButton1Click:Connect(function() rRoll:FireServer() end)
+
+-- Roulement automatique : payant une fois, puis simple marche/arrêt. L'état
+-- vient toujours du serveur — le clic ne fait qu'envoyer une intention.
+local autoRollBtn = button("🔁", Color3.fromRGB(120, 130, 150), gui)
+autoRollBtn.Size = UDim2.fromOffset(46, 62)
+autoRollBtn.Position = UDim2.fromOffset(170, 156)
+autoRollBtn.TextSize = 13
+local autoRollOn = false
+local autoRollOwned = false
+autoRollBtn.MouseButton1Click:Connect(function()
+	rAutoRoll:FireServer(not autoRollOn)
+end)
 
 local squadLabel = make("TextLabel", {
 	Size = UDim2.fromOffset(230, 22), Position = UDim2.fromOffset(16, 226),
@@ -870,6 +885,20 @@ rStats.OnClientEvent:Connect(function(s)
 
 	diceBtn.Text = string.format("🎲 RECRUTER\n%s $", Config.abbreviate(s.diceCost))
 	diceBtn.BackgroundColor3 = s.money >= s.diceCost and Color3.fromRGB(235, 170, 60) or Color3.fromRGB(120, 95, 55)
+
+	-- Tant qu'il n'est pas acheté, le bouton affiche son PRIX : c'est ce qui dit
+	-- au joueur que le premier clic est un achat et pas un simple interrupteur.
+	autoRollOn = s.autoRollOn == true
+	autoRollOwned = s.autoRollOwned == true
+	if not autoRollOwned then
+		autoRollBtn.Text = "🔁\n" .. Config.abbreviate(s.autoRollCost or 0) .. " $"
+		autoRollBtn.BackgroundColor3 = s.money >= (s.autoRollCost or 0)
+			and Color3.fromRGB(200, 160, 90) or Color3.fromRGB(110, 100, 85)
+	else
+		autoRollBtn.Text = if autoRollOn then "🔁\nON" else "🔁\nOFF"
+		autoRollBtn.BackgroundColor3 = if autoRollOn
+			then Color3.fromRGB(90, 220, 140) else Color3.fromRGB(120, 130, 150)
+	end
 	squadLabel.Text = string.format("👥 Équipe %d/%d  •  Collection : %d",
 		s.squadSize, s.maxSlots, s.cardsOwned)
 

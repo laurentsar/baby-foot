@@ -400,6 +400,19 @@ Config.AutoShoot = {
 	sweepStep = 9,
 }
 
+-------------------------------------------------------------------------------
+-- ROULEMENT AUTOMATIQUE DES DÉS
+--
+-- Se débloque en jeu contre de l'argent, une fois pour toutes, puis se pilote
+-- depuis le bouton RECRUTER. Ça n'accélère rien et ça ne rend rien gratuit :
+-- chaque lancer automatique paie le prix courant et respecte le même cooldown
+-- que le bouton. Ce qu'on achète, c'est de ne plus avoir à appuyer.
+-------------------------------------------------------------------------------
+Config.AutoRoll = {
+	unlockCost = 100e6,   -- 100 M $, déblocage définitif
+	interval = 1.0,       -- fréquence des tentatives (le cooldown des dés vaut 0,6 s)
+}
+
 function Config.autoShootUnlockedBy(totalEarned: number, hasPass: boolean): boolean
 	return hasPass or totalEarned >= Config.AutoShoot.freeUnlockEarned
 end

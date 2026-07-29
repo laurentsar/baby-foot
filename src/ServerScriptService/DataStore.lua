@@ -38,6 +38,8 @@ function DataModule.default()
 		rebirths = 0,
 		totalEarned = 0, -- pour le classement mondial
 		autoShoot = false, -- interrupteur du tir automatique, conservé d'une session à l'autre
+		autoRollOwned = false, -- roulement auto des dés acheté (définitif)
+		autoRoll = false,      -- ...et allumé ou non
 	}
 end
 
