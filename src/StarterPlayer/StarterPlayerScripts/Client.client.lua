@@ -600,9 +600,15 @@ local function refreshIndex()
 end
 
 indexToggle.MouseButton1Click:Connect(function()
+	-- 258 lignes : refermer puis rouvrir en repartant du haut donne l'impression
+	-- que l'index s'est remis a zero. On garde la position de defilement.
+	local keep = indexScroll.CanvasPosition
 	buildIndexRows()
 	refreshIndex()
 	togglePanel(indexPanel)
+	if indexPanel.Visible then
+		indexScroll.CanvasPosition = keep
+	end
 end)
 
 -------------------------------------------------------------------------------

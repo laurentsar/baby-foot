@@ -11,7 +11,9 @@ local Leaderboard = {}
 local ordered: OrderedDataStore? = nil
 if game.PlaceId ~= 0 then  -- place non publié => OrderedDataStore inaccessible
 	pcall(function()
-		ordered = DataStoreService:GetOrderedDataStore(Config.SaveKey .. "_top")
+		-- Cle v2 : la v1 stockait la valeur brute ecretee a 2^53, elle contient
+		-- donc des scores faux et non comparables entre eux. On repart propre.
+		ordered = DataStoreService:GetOrderedDataStore(Config.SaveKey .. "_top_v2")
 	end)
 end
 
@@ -43,9 +45,30 @@ local SUBMIT_INTERVAL = 60
 local lastSubmitAt: { [number]: number } = {}
 local lastSubmitVal: { [number]: number } = {}
 
--- Les valeurs OrderedDataStore doivent tenir dans un entier 64 bits signe ; un
--- total astronomique ferait echouer l'ecriture au lieu de classer le joueur.
-local MAX_SCORE = 2 ^ 53
+-- SCORE STOCKE EN ECHELLE LOG.
+--
+-- Un OrderedDataStore ne prend que des entiers, et un double perd la precision
+-- entiere au-dela de 2^53 (~9 Qa). Or les gains du jeu sont multiplicatifs et
+-- depassent 1e36 apres quelques renaissances : ecreter a 2^53 (ce que faisait
+-- la version precedente) affichait un montant faux ET donnait la MEME valeur a
+-- tous les joueurs au-dessus du plafond, rendant leur classement arbitraire.
+--
+-- On stocke donc log10(1 + total) * 1e6. Le log est strictement croissant, donc
+-- l'ORDRE est exactement preserve ; et 6 decimales d'exposant laissent ~6
+-- chiffres significatifs a la relecture, largement assez pour un affichage.
+-- Un total de 1e300 ne pese que 3e8, tres loin de la limite.
+local LOG_SCALE = 1e6
+local MAX_SCORE = 4e8   -- log10 = 400, hors d'atteinte
+
+local function encodeScore(total: number): number
+	if total <= 0 then return 0 end
+	return math.clamp(math.floor(math.log(1 + total, 10) * LOG_SCALE), 0, MAX_SCORE)
+end
+
+local function decodeScore(value: number): number
+	if value <= 0 then return 0 end
+	return 10 ^ (value / LOG_SCALE) - 1
+end
 
 -- Joueurs effacés à leur demande : plus aucune soumission jusqu'à la fin de leur
 -- session, sinon l'écriture forcée du départ les remettrait au classement.
@@ -56,7 +79,7 @@ function Leaderboard.submit(userId: number, totalEarned: number, force: boolean?
 	if erased[userId] then return end
 	if totalEarned ~= totalEarned then return end  -- NaN
 
-	local value = math.clamp(math.floor(totalEarned), 0, MAX_SCORE)
+	local value = encodeScore(totalEarned)
 	if lastSubmitVal[userId] == value then return end
 
 	local now = os.clock()
@@ -136,7 +159,7 @@ function Leaderboard.refresh()
 		local uid = tonumber(((entry.key :: string):gsub("u_", ""))) or 0
 		local medal = rank == 1 and "🥇" or rank == 2 and "🥈" or rank == 3 and "🥉" or (rank .. ".")
 		table.insert(rows, string.format("%s  %s  —  %s $",
-			medal, nameFor(uid), Config.abbreviate(entry.value)))
+			medal, nameFor(uid), Config.abbreviate(decodeScore(entry.value))))
 		rank += 1
 	end
 	if #rows == 0 then
