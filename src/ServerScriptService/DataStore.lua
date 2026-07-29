@@ -31,6 +31,10 @@ function DataModule.default()
 		valueLevel = 0,  -- niveau valeur des joueurs
 		slots = Config.StartingSlots, -- emplacements débloqués sur les bases
 		cards = {},      -- collection : { {name = "...", rarity = "commun"}, ... }
+		-- Nombre de lancers de dés déjà payés. C'est LUI qui fait monter le prix
+		-- des dés, et pas #cards : la collection est plafonnée, donc son compte
+		-- cesse de croître et figeait le prix (cf. Config.diceCost).
+		rolls = 0,
 		rebirths = 0,
 		totalEarned = 0, -- pour le classement mondial
 		autoShoot = false, -- interrupteur du tir automatique, conservé d'une session à l'autre

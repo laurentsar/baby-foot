@@ -51,13 +51,6 @@ Config.Bases = {
 	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
--- PASSERELLES : une de chaque côté, le long des lignes de touche, reliant les
--- bouts des 4 tiges entre eux.
---
--- Un premier essai passait au milieu du terrain, à la hauteur des tiges : c'est
--- exactement la ligne de tir, ça masquait le baby-foot. Elles sont donc dehors,
--- alignées sur les panneaux publicitaires (même `offset`) et calées juste sous
--- les tiges, qui viennent s'y poser.
 -- PASSERELLES : une par ligne de touche, posée sur la crête des murs latéraux.
 -- Pas à la hauteur des tiges : à 6 studs, derrière un mur de 10, elle était
 -- invisible depuis le terrain.
@@ -222,14 +215,23 @@ end
 Config.Dice = {
 	baseCost = 600,
 	costGrowth = 1.035,    -- coût *= par carte déjà possédée
-	maxCost = 50000000,
+	-- Plafond du coût de base. Il est ensuite multiplié par le coefficient de
+	-- renaissance (Config.upgradeCostMultiplier), donc le prix réel monte encore
+	-- au-delà. À 50 M il était atteint dès ~330 lancers et le prix se figeait de
+	-- nouveau, ce qui était précisément le défaut corrigé.
+	maxCost = 5e12,
 	cooldown = 0.6,        -- délai serveur min entre deux lancers
 	vipDiscount = 0.7,     -- pass VIP : dés 30 % moins chers
 	luckyRerollWeight = 3, -- pass Dés Chanceux : le poids des communs est divisé par 3
 }
 
-function Config.diceCost(cardsOwned: number, hasVIP: boolean): number
-	local c = Config.Dice.baseCost * (Config.Dice.costGrowth ^ cardsOwned)
+-- Le coût monte avec le NOMBRE DE LANCERS DÉJÀ FAITS, pas avec la taille de la
+-- collection. La collection est plafonnée (MAX_CARDS côté serveur : un lancer
+-- ajoute une carte puis jette la plus faible) ; indexer le prix dessus le
+-- figeait définitivement une fois le plafond atteint — le bouton RECRUTER
+-- restait au même prix pour toujours.
+function Config.diceCost(rolls: number, hasVIP: boolean): number
+	local c = Config.Dice.baseCost * (Config.Dice.costGrowth ^ math.max(0, rolls))
 	if hasVIP then c *= Config.Dice.vipDiscount end
 	return math.floor(math.min(c, Config.Dice.maxCost))
 end

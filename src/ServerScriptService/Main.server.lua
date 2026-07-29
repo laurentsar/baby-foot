@@ -181,7 +181,7 @@ local function buildStats(session: Session)
 		slotCost = math.floor(Config.slotCost(slots) * costMult),
 		squadSize = math.min(#d.cards, slots),
 		cardsOwned = #d.cards,
-		diceCost = math.floor(Config.diceCost(#d.cards, session.passes.VIP == true) * costMult),
+		diceCost = math.floor(Config.diceCost(d.rolls, session.passes.VIP == true) * costMult),
 		playerValue = Config.playerValueAt(d.valueLevel),
 		playerValueCost = math.floor(Config.playerValueCost(d.valueLevel) * costMult),
 		rebirthCost = Config.rebirthCost(d.rebirths),
@@ -822,13 +822,14 @@ rRoll.OnServerEvent:Connect(function(player)
 	session.lastRoll = now
 
 	local d = session.data
-	local cost = math.floor(Config.diceCost(#d.cards, session.passes.VIP == true) * upgradeCostMult(session))
+	local cost = math.floor(Config.diceCost(d.rolls, session.passes.VIP == true) * upgradeCostMult(session))
 	if d.money < cost then
 		rToast:FireClient(player, "Pas assez d'argent pour lancer les dés ("
 			.. Config.abbreviate(cost) .. " $)")
 		return
 	end
 	d.money -= cost
+	d.rolls += 1
 
 	local key = Config.rollRarity(rng, session.passes.LuckyDice == true)
 	local card = { name = Config.cardNameFor(key, rng), rarity = key }
@@ -983,6 +984,12 @@ local function onPlayerAdded(player: Player)
 		})
 	end
 	data.slots = math.max(data.slots or 0, starterTarget)
+
+	-- Sauvegardes d'avant l'ajout de `rolls` : le compteur y vaut 0, ce qui
+	-- ferait retomber le prix des dés au tarif de départ pour un joueur qui a
+	-- déjà des centaines de lancers derrière lui. On l'amorce sur la taille de
+	-- la collection, exactement ce qui servait de base au calcul avant.
+	data.rolls = math.max(data.rolls or 0, #data.cards)
 
 	-- leaderstats
 	local ls = Instance.new("Folder")
