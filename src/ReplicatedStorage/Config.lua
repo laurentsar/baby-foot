@@ -146,7 +146,16 @@ Config.Rarities = {
 	-- Pour la rendre totalement inobtenable aux dés (et réservée aux dons ou aux
 	-- commandes admin), mettre weight = 0 : rollRarity ne la choisira jamais.
 	-- Seule rareté à porter sa propre tenue, cf. Config.Skins.
-	{ key = "exclusif",   name = "Exclusif",   mult = 500, weight = 0.02, color = Color3.fromRGB(150, 160, 235) },
+	-- cardName : cette rareté n'est pas un lot de joueurs, c'est UN personnage.
+	-- Toutes ses cartes portent donc le même nom et la même tenue, au lieu de
+	-- tirer un nom au hasard comme les autres.
+	{ key = "exclusif",   name = "Exclusif",   mult = 500, weight = 0.02, color = Color3.fromRGB(150, 160, 235),
+	  cardName = "Le Prodige" },
+	-- Au-dessus de l'Exclusif : la carte la plus rare du jeu. x1000 et un tirage
+	-- sur 20000 — à ce niveau, l'obtenir aux dés relève de l'accident heureux,
+	-- c'est surtout une carte à offrir ou à accorder.
+	{ key = "astral",     name = "Astral",     mult = 1000, weight = 0.005, color = Color3.fromRGB(196, 92, 255),
+	  cardName = "L'Astral" },
 }
 
 function Config.rarity(key: string)
@@ -183,6 +192,15 @@ for _, first in Config.NamePool.first do
 	end
 end
 table.sort(CATALOGUE)
+
+-- Les personnages uniques (raretés à cardName) ne sortent pas des pools : sans
+-- cet ajout ils seraient introuvables dans l'index, et la complétion ne pourrait
+-- jamais être atteinte. Ils ferment la liste, à leur place de pièce maîtresse.
+for _, r in Config.Rarities do
+	if r.cardName then
+		table.insert(CATALOGUE, r.cardName)
+	end
+end
 
 function Config.catalogue(): { string }
 	return CATALOGUE
@@ -551,6 +569,10 @@ Config.Jersey = {
 -- loin, sans avoir à lire son étiquette.
 --
 -- Les champs absents retombent sur Config.Jersey.
+--
+-- Deux options en plus des couleurs :
+--   glow = true   → corps et bande en Neon (la figurine s'éclaire d'elle-même)
+--   halo = Color3 → anneau lumineux au-dessus de la tête
 -------------------------------------------------------------------------------
 Config.Skins = {
 	exclusif = {
@@ -562,6 +584,18 @@ Config.Skins = {
 		arms = Color3.fromRGB(226, 178, 142),    -- bras nus
 		socks = Color3.fromRGB(64, 196, 208),    -- rayures turquoise
 		shoes = Color3.fromRGB(242, 242, 248),   -- baskets blanches
+	},
+	astral = {
+		body = Color3.fromRGB(58, 40, 118),      -- violet profond « galaxie »
+		stripe = Color3.fromRGB(214, 72, 226),   -- magenta des cornes
+		trim = Color3.fromRGB(255, 202, 64),     -- le liseré fait la couronne dorée
+		shorts = Color3.fromRGB(38, 28, 88),
+		head = Color3.fromRGB(74, 52, 146),
+		arms = Color3.fromRGB(58, 40, 118),
+		socks = Color3.fromRGB(120, 88, 232),
+		shoes = Color3.fromRGB(236, 238, 250),   -- bottes blanches
+		glow = true,
+		halo = Color3.fromRGB(255, 202, 64),
 	},
 }
 
@@ -661,6 +695,14 @@ function Config.randomPlayerName(rng: Random): string
 	local pool = Config.NamePool
 	return pool.first[rng:NextInteger(1, #pool.first)]
 		.. " " .. pool.last[rng:NextInteger(1, #pool.last)]
+end
+
+-- Nom de la carte à créer pour une rareté donnée. Les raretés « personnage »
+-- (cardName) imposent leur nom ; les autres tirent dans les pools.
+function Config.cardNameFor(rarityKey: string, rng: Random): string
+	local r = Config.rarity(rarityKey)
+	if r.key == rarityKey and r.cardName then return r.cardName end
+	return Config.randomPlayerName(rng)
 end
 
 -- Formatage abrégé des grands nombres (1.2K, 3.4M, ...).

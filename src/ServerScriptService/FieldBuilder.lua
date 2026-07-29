@@ -582,7 +582,10 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			fig.CanCollide = false
 			fig.CastShadow = false
 			fig.Color = J.body
-			fig.Material = Enum.Material.SmoothPlastic
+			-- glow : la figurine s'éclaire d'elle-même. Réservé aux tenues qui le
+			-- demandent — du Neon sur les 41 figurines d'un plot noierait le socle,
+			-- qui est justement ce qui porte la lecture des raretés.
+			fig.Material = if J.glow then Enum.Material.Neon else Enum.Material.SmoothPlastic
 			fig.CFrame = CFrame.new(slot.position)
 			-- Lu par le moteur de tir : l'argent d'un joueur touché dépend de sa rareté.
 			fig:SetAttribute("Mult", rarity.mult)
@@ -598,7 +601,7 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			stripe.CanCollide = false
 			stripe.CastShadow = false
 			stripe.Color = J.stripe
-			stripe.Material = Enum.Material.SmoothPlastic
+			stripe.Material = if J.glow then Enum.Material.Neon else Enum.Material.SmoothPlastic
 			stripe.CFrame = fig.CFrame
 			stripe.Parent = fig
 
@@ -648,6 +651,24 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 			head.Color = J.head
 			head.CFrame = fig.CFrame + Vector3.new(0, 3.8, 0)
 			head.Parent = fig
+
+			-- Couronne : un disque neon posé à plat au-dessus de la tête. Le
+			-- cylindre Roblox a son axe sur X, d'où la rotation de 90°. Disque
+			-- plein et non anneau : à distance de tir, seule la lueur se lit, et
+			-- un vrai anneau demanderait un mesh.
+			if J.halo then
+				local halo = Instance.new("Part")
+				halo.Name = "Couronne"
+				halo.Shape = Enum.PartType.Cylinder
+				halo.Size = Vector3.new(0.28, 3.2, 3.2)
+				halo.Anchored = true
+				halo.CanCollide = false
+				halo.CastShadow = false
+				halo.Color = J.halo
+				halo.Material = Enum.Material.Neon
+				halo.CFrame = (fig.CFrame + Vector3.new(0, 5.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+				halo.Parent = fig
+			end
 
 			-- Bras, chaussettes et chaussures : uniquement pour les tenues qui les
 			-- déclarent. Les ajouter à toutes les figurines aurait triplé le nombre

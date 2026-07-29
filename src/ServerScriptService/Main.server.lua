@@ -739,7 +739,7 @@ rAdmin.OnServerEvent:Connect(function(player, payload)
 		local name = if typeof(payload.name) == "string" and payload.name ~= "" then payload.name else nil
 		for _ = 1, count do
 			table.insert(session.data.cards, {
-				name = name or Config.randomPlayerName(rng),
+				name = name or Config.cardNameFor(rarity, rng),
 				rarity = rarity,
 			})
 		end
@@ -831,7 +831,7 @@ rRoll.OnServerEvent:Connect(function(player)
 	d.money -= cost
 
 	local key = Config.rollRarity(rng, session.passes.LuckyDice == true)
-	local card = { name = Config.randomPlayerName(rng), rarity = key }
+	local card = { name = Config.cardNameFor(key, rng), rarity = key }
 	table.insert(d.cards, card)
 
 	-- Collection pleine : on jette la carte la plus faible, jamais la nouvelle.
