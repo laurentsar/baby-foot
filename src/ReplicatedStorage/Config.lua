@@ -51,6 +51,21 @@ Config.Bases = {
 	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
+-- PASSERELLES : une de chaque côté, le long des lignes de touche, reliant les
+-- bouts des 4 tiges entre eux.
+--
+-- Un premier essai passait au milieu du terrain, à la hauteur des tiges : c'est
+-- exactement la ligne de tir, ça masquait le baby-foot. Elles sont donc dehors,
+-- alignées sur les panneaux publicitaires (même `offset`) et calées juste sous
+-- les tiges, qui viennent s'y poser.
+Config.Walkway = {
+	width = 3.5,        -- largeur du tablier
+	offset = 2.6,       -- distance au-delà du bord du terrain (= ligne des panneaux)
+	railHeight = 1.6,   -- garde-corps, côté extérieur seulement
+	margin = 6,         -- dépassement avant la 1re base et après la dernière
+	walkable = false,   -- décor : la balle est simulée sans collision de toute façon
+}
+
 Config.MaxSquad = 11        -- plafond de base : chaque renaissance l'augmente (voir extraSlotsFromRebirths)
 -- L'équipe est COMPLÈTE dès le départ : 11 emplacements ouverts, 11 joueurs
 -- posés. Les acheter un par un laissait le terrain à moitié vide et donnait
