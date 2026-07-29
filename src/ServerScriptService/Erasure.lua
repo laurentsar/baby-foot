@@ -3,9 +3,10 @@
 --
 -- Deux chemins, parce que les demandes arrivent de deux façons :
 --
---  1. Le joueur est en jeu et clique « Supprimer mes données » dans la boutique.
---     Le serveur efface, puis l'éjecte : sa session tourne encore en mémoire et
---     la sauvegarde de sortie recréerait aussitôt ce qu'on vient d'effacer.
+--  1. Le remote EraseData (encore câblé côté serveur, plus de bouton dans la
+--     boutique) : efface, puis éjecte le joueur — sa session tourne encore en
+--     mémoire et la sauvegarde de sortie recréerait aussitôt ce qu'on vient
+--     d'effacer.
 --
 --  2. Roblox transmet une demande pour un joueur qui ne reviendra pas (Creator
 --     Dashboard → e-mail de Right to Erasure). On colle son UserId dans

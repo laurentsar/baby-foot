@@ -58,7 +58,10 @@ type Session = {
 local sessions: { [Player]: Session } = {}
 local nextSlot = 0
 local freeSlots: { number } = {}   -- plots rendus par les joueurs partis
-local SLOT_SPACING = 320  -- distance entre deux plots
+-- Distance entre deux plots. Doit rester assez grande pour que le terrain le
+-- plus agrandi possible par les renaissances (Config.Rebirth.maxFieldGrowth)
+-- ne chevauche jamais celui du voisin.
+local SLOT_SPACING = 600
 
 -- Tous les panneaux de classement (stade + un parvis par plot) : le compte à
 -- rebours du coup de sifflet est écrit sur chacun.
@@ -100,10 +103,29 @@ local function moneyMultiplier(session: Session): number
 	return m
 end
 
+-- Emplacements de joueurs bonus gagnés par les renaissances (voir
+-- Config.extraSlotsFromRebirths) : plus de renaissances, plus de joueurs sur
+-- le terrain, donc plus d'argent par tir.
+local function extraSlotsFor(session: Session): number
+	return Config.extraSlotsFromRebirths(session.data.rebirths)
+end
+
+-- Plafond réel d'emplacements : les 11 de base + le bonus de renaissance.
+local function maxSlotsFor(session: Session): number
+	local extra = extraSlotsFor(session)
+	return math.min(Config.MaxSquad + extra, Config.totalSlots(extra))
+end
+
+-- Coût des améliorations (haltère, balle, dés, emplacement, valeur joueur) :
+-- grimpe fortement avec les renaissances (voir Config.upgradeCostMultiplier).
+local function upgradeCostMult(session: Session): number
+	return Config.upgradeCostMultiplier(session.data.rebirths)
+end
+
 -- Emplacements réellement disponibles : ce que le joueur a débloqué, borné par
--- les 11 places du terrain (plafond dur, aucun pass ne le dépasse).
+-- le plafond du terrain (aucun pass ne le dépasse).
 local function unlockedSlots(session: Session): number
-	return math.clamp(session.data.slots, 0, math.min(Config.MaxSquad, Config.totalSlots()))
+	return math.clamp(session.data.slots, 0, maxSlotsFor(session))
 end
 
 -- L'équipe posée sur les bases : les meilleures cartes de la collection, dans la
@@ -135,7 +157,8 @@ local function buildStats(session: Session)
 	local nextDumb = Config.Dumbbells[d.dumbbell + 1]
 	local nextBall = Config.Balls[d.ball + 1]
 	local slots = unlockedSlots(session)
-	local maxSlots = math.min(Config.MaxSquad, Config.totalSlots())
+	local maxSlots = maxSlotsFor(session)
+	local costMult = upgradeCostMult(session)
 	return {
 		money = d.money,
 		power = d.power,
@@ -143,17 +166,17 @@ local function buildStats(session: Session)
 		totalEarned = d.totalEarned,
 		moneyMult = moneyMultiplier(session),
 		dumbbell = { name = dumb.name, powerGain = dumb.powerGain, level = d.dumbbell },
-		nextDumbbell = nextDumb and { name = nextDumb.name, cost = nextDumb.cost } or nil,
+		nextDumbbell = nextDumb and { name = nextDumb.name, cost = math.floor(nextDumb.cost * costMult) } or nil,
 		ball = { name = ball.name, moneyMult = ball.moneyMult, level = d.ball },
-		nextBall = nextBall and { name = nextBall.name, cost = nextBall.cost } or nil,
+		nextBall = nextBall and { name = nextBall.name, cost = math.floor(nextBall.cost * costMult) } or nil,
 		slots = slots,
 		maxSlots = maxSlots,
-		slotCost = Config.slotCost(slots),
+		slotCost = math.floor(Config.slotCost(slots) * costMult),
 		squadSize = math.min(#d.cards, slots),
 		cardsOwned = #d.cards,
-		diceCost = Config.diceCost(#d.cards, session.passes.VIP == true),
+		diceCost = math.floor(Config.diceCost(#d.cards, session.passes.VIP == true) * costMult),
 		playerValue = Config.playerValueAt(d.valueLevel),
-		playerValueCost = Config.playerValueCost(d.valueLevel),
+		playerValueCost = math.floor(Config.playerValueCost(d.valueLevel) * costMult),
 		rebirthCost = Config.rebirthCost(d.rebirths),
 		nextRebirthMult = Config.rebirthMultiplier(d.rebirths + 1, session.passes.RebirthX2 == true),
 		passes = session.passes,
@@ -175,7 +198,8 @@ local function updateLeaderstats(session: Session, player: Player)
 end
 
 -------------------------------------------------------------------------------
--- Terrain : repose l'équipe sur les bases (11 emplacements au maximum).
+-- Terrain : repose l'équipe sur les bases (11 emplacements de base, plus au
+-- fil des renaissances).
 -------------------------------------------------------------------------------
 -- Repose les figurines. Jamais pendant qu'une balle est en vol : placeSquad fait
 -- un ClearAllChildren puis recrée les figurines, ce qui rearmait des cibles
@@ -197,7 +221,7 @@ local function pushCollection(player: Player)
 		cards = session.data.cards,
 		squad = squadOf(session),
 		unlockedSlots = unlockedSlots(session),
-		maxSlots = math.min(Config.MaxSquad, Config.totalSlots()),
+		maxSlots = maxSlotsFor(session),
 	})
 end
 
@@ -461,26 +485,35 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 	if typeof(kind) ~= "string" then return end
 	if not allow(player, "buy", 0.15) then return end
 	local d = session.data
+	-- Grimpe fortement à chaque renaissance : le terrain et l'équipe s'agrandissent,
+	-- mais tout coûte bien plus cher (voir Config.upgradeCostMultiplier).
+	local costMult = upgradeCostMult(session)
 
 	if kind == "dumbbell" then
 		local nxt = Config.Dumbbells[d.dumbbell + 1]
-		if nxt and d.money >= nxt.cost then
-			d.money -= nxt.cost
-			d.dumbbell += 1
+		if nxt then
+			local cost = math.floor(nxt.cost * costMult)
+			if d.money >= cost then
+				d.money -= cost
+				d.dumbbell += 1
+			end
 		end
 	elseif kind == "ball" then
 		local nxt = Config.Balls[d.ball + 1]
-		if nxt and d.money >= nxt.cost then
-			d.money -= nxt.cost
-			d.ball += 1
+		if nxt then
+			local cost = math.floor(nxt.cost * costMult)
+			if d.money >= cost then
+				d.money -= cost
+				d.ball += 1
+			end
 		end
 	elseif kind == "slot" then
 		local slots = unlockedSlots(session)
-		local maxSlots = math.min(Config.MaxSquad, Config.totalSlots())
+		local maxSlots = maxSlotsFor(session)
 		if slots >= maxSlots then
-			rToast:FireClient(player, "Équipe au complet : 11 joueurs, c'est le maximum !")
+			rToast:FireClient(player, string.format("Équipe au complet : %d joueurs, c'est le maximum !", maxSlots))
 		else
-			local cost = Config.slotCost(slots)
+			local cost = math.floor(Config.slotCost(slots) * costMult)
 			if d.money >= cost then
 				d.money -= cost
 				d.slots = slots + 1
@@ -489,7 +522,7 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 			end
 		end
 	elseif kind == "value" then
-		local cost = Config.playerValueCost(d.valueLevel)
+		local cost = math.floor(Config.playerValueCost(d.valueLevel) * costMult)
 		if d.money >= cost then
 			d.money -= cost
 			d.valueLevel += 1
@@ -515,7 +548,7 @@ rRoll.OnServerEvent:Connect(function(player)
 	session.lastRoll = now
 
 	local d = session.data
-	local cost = Config.diceCost(#d.cards, session.passes.VIP == true)
+	local cost = math.floor(Config.diceCost(#d.cards, session.passes.VIP == true) * upgradeCostMult(session))
 	if d.money < cost then
 		rToast:FireClient(player, "Pas assez d'argent pour lancer les dés ("
 			.. Config.abbreviate(cost) .. " $)")
@@ -565,15 +598,34 @@ rRebirth.OnServerEvent:Connect(function(player)
 	d.dumbbell = 1
 	d.ball = 1
 	d.valueLevel = 0
-	-- Les emplacements ne sont pas remis à zéro : l'équipe reste complète, et
-	-- d.cards est conservé — la collection est la progression longue du jeu.
+
+	-- Le terrain grandit et l'équipe s'agrandit à chaque renaissance : plus de
+	-- joueurs à toucher (donc plus d'argent par tir), mais un but plus loin (il
+	-- faut plus de puissance) et des coûts d'amélioration bien plus élevés (voir
+	-- Config.upgradeCostMultiplier, appliqué partout ailleurs dans ce fichier).
+	-- L'équipe reste complète : les nouveaux emplacements sont comblés par des
+	-- Communs, comme au tout premier chargement (cf. onPlayerAdded).
+	local newMaxSlots = maxSlotsFor(session)
+	d.slots = newMaxSlots
+	while #d.cards < newMaxSlots do
+		table.insert(d.cards, { name = Config.randomPlayerName(rng), rarity = Config.StarterRarity })
+	end
+
+	if session.field and session.field.root then
+		session.field.root:Destroy()
+	end
+	local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
+		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session))
+
 	repopulate(session)
 	updateLeaderstats(session, player)
 	pushStats(player)
 	pushCollection(player)
 	rToast:FireClient(player, "🔄 Renaissance ! Multiplicateur permanent x"
 		.. Config.rebirthMultiplier(d.rebirths, session.passes.RebirthX2 == true)
-		.. " — ta collection de joueurs est gardée.")
+		.. " — terrain agrandi, équipe élargie à " .. newMaxSlots
+		.. " joueurs, ta collection est gardée. Tout coûte plus cher maintenant !")
 end)
 
 -------------------------------------------------------------------------------
@@ -644,16 +696,19 @@ local function onPlayerAdded(player: Player)
 	local data = DataStore.load(player.UserId)
 
 	-- L'équipe est toujours au complet : on complète la collection avec des
-	-- Communs jusqu'à 11 joueurs. Vaut pour la première partie comme pour une
-	-- sauvegarde d'avant (où seuls 4 emplacements étaient ouverts) — un terrain
-	-- à trous donnait l'impression qu'il manquait des joueurs.
-	while #data.cards < Config.StarterCards do
+	-- Communs jusqu'au plafond du joueur. Vaut pour la première partie comme
+	-- pour une sauvegarde d'avant (où seuls 4 emplacements étaient ouverts, ou
+	-- où les renaissances n'agrandissaient pas encore l'équipe) — un terrain à
+	-- trous donnait l'impression qu'il manquait des joueurs.
+	local extraFromRebirths = Config.extraSlotsFromRebirths(data.rebirths)
+	local starterTarget = Config.StartingSlots + extraFromRebirths
+	while #data.cards < starterTarget do
 		table.insert(data.cards, {
 			name = Config.randomPlayerName(rng),
 			rarity = Config.StarterRarity,
 		})
 	end
-	data.slots = math.max(data.slots or 0, Config.StartingSlots)
+	data.slots = math.max(data.slots or 0, starterTarget)
 
 	-- leaderstats
 	local ls = Instance.new("Folder")
@@ -691,7 +746,8 @@ local function onPlayerAdded(player: Player)
 
 	refreshPasses(session, player)
 
-	session.field = FieldBuilder.build(session.passes.BigField == true, origin)
+	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
+		Config.fieldSizeMultiplier(data.rebirths), extraFromRebirths)
 	local training = FieldBuilder.buildTrainingArea(origin)
 	local entrance = FieldBuilder.buildEntrance(origin)
 	session.spawnPos = entrance.spawnPos

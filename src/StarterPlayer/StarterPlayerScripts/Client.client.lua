@@ -25,7 +25,6 @@ local rShotResult = Remotes.get("ShotResult")
 local rDiceResult = Remotes.get("DiceResult")
 local rCollection = Remotes.get("Collection")
 local rToast = Remotes.get("Toast")
-local rErase = Remotes.get("EraseData")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -79,11 +78,13 @@ local gui = make("ScreenGui", {
 }, playerGui)
 
 -------------------------------------------------------------------------------
--- Panneau de stats (haut-gauche).
+-- Panneau de stats (argent, puissance, renaissances) : collé au bord gauche de
+-- la boutique, qu'elle soit repliée ou ouverte (la boutique ouverte fait 320 de
+-- large, pas seulement son bouton de 150 — l'ancrage tient compte des deux).
 -------------------------------------------------------------------------------
 local statsPanel = make("Frame", {
 	Size = UDim2.fromOffset(260, 130),
-	Position = UDim2.fromOffset(16, 16),
+	Position = UDim2.new(1, -612, 0, 16),
 	BackgroundColor3 = BG,
 	BackgroundTransparency = 0.1,
 	BorderSizePixel = 0,
@@ -348,27 +349,6 @@ for key, pass in Config.Passes do
 	passOrder += 1
 end
 
--- Droit à l'oubli : accessible depuis le jeu, sans passer par un formulaire.
--- En bas de la boutique, discret mais toujours atteignable. La confirmation est
--- gérée par le serveur (deux clics), le client n'efface rien de lui-même.
-shopHeader("🔒 MES DONNÉES", passOrder, Color3.fromRGB(180, 180, 200))
-passOrder += 1
-local eraseBtn = button("Supprimer mes données", Color3.fromRGB(150, 60, 60), shopScroll)
-eraseBtn.Size = UDim2.new(1, 0, 0, 44)
-eraseBtn.TextSize = 14
-eraseBtn.LayoutOrder = passOrder
-eraseBtn.MouseButton1Click:Connect(function() rErase:FireServer() end)
-passOrder += 1
-make("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1,
-	Text = "Efface definitivement ta progression (argent, puissance, renaissances,"
-		.. " collection) et te retire du classement mondial.",
-	Font = Enum.Font.Gotham, TextWrapped = true, TextSize = 12,
-	TextColor3 = Color3.fromRGB(170, 170, 190),
-	TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = passOrder,
-}, shopScroll)
-passOrder += 1
-
 -------------------------------------------------------------------------------
 -- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.
 -- Dans SoundService et non dans le monde : une musique de fond ne doit pas
@@ -388,10 +368,10 @@ end
 
 local musicBtn = button(if music then "🎵 MUSIQUE" else "🎵 à configurer",
 	if music then Color3.fromRGB(120, 200, 200) else Color3.fromRGB(95, 95, 115), gui)
--- En haut au centre : la colonne de droite est prise par la boutique (qui
--- s'ouvre à partir de y=70) et celle de gauche par les dés et la collection.
+-- Coin haut-gauche : le panneau de stats (argent) a été déplacé contre la
+-- boutique, à droite, ce qui libère ce coin pour la musique.
 musicBtn.Size = UDim2.fromOffset(150, 32)
-musicBtn.Position = UDim2.new(0.5, -75, 0, 16)
+musicBtn.Position = UDim2.fromOffset(16, 16)
 musicBtn.TextSize = 14
 musicBtn.MouseButton1Click:Connect(function()
 	if not music then return end

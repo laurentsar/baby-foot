@@ -78,10 +78,16 @@ end
 -- bigGoal = pass Grand Terrain. Il élargit le BUT, il n'allonge plus le terrain :
 -- allonger éloignait le fond et rendait le but plus dur, l'inverse de ce que le
 -- pass promet.
-function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?)
+-- sizeMult = agrandissement du terrain gagné par les renaissances (voir
+-- Config.fieldSizeMultiplier) : le but s'éloigne d'autant, il faut plus de
+-- puissance pour l'atteindre. extraSlots = emplacements de joueurs bonus gagnés
+-- par les renaissances (voir Config.extraSlotsFromRebirths), répartis sur les
+-- 4 bases.
+function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult: number?, extraSlots: number?)
 	local F = Config.Field
-	local length = F.length
-	local width = F.width
+	local mult = sizeMult or 1
+	local length = F.length * mult
+	local width = F.width * mult
 	local origin = originOverride or F.origin
 
 	local root = Instance.new("Model")
@@ -227,11 +233,53 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?)
 		shootPad = shootPad,
 		barrierZ = barrierZ,
 		crowd = {},
+		bases = Config.basesWithExtra(extraSlots),
 	}
 
 	FieldBuilder.buildBases(field)
 	FieldBuilder.buildDecor(field)
+	FieldBuilder.buildPlotBoundary(field, origin)
 	return field
+end
+
+-- MURS INVISIBLES SUR LES 4 CÔTÉS DE TOUT LE PLOT (parvis + allée + zone
+-- d'entraînement + terrain), pas seulement autour du baby-foot : sans ça, un
+-- joueur qui s'écarte du chemin peut sortir de la zone construite et tomber
+-- dans le vide. Recalculé à chaque construction du terrain, donc à chaque
+-- renaissance quand celui-ci grandit — le côté "terrain" du rectangle suit,
+-- le côté "parvis" ne bouge jamais (l'entrée ne grandit pas).
+function FieldBuilder.buildPlotBoundary(field, origin: Vector3)
+	local F = Config.Field
+	local E = Config.Entrance
+
+	local shootZ = origin.Z + F.shootLine
+	local plazaZ = shootZ - E.plazaOffset
+	local nearZ = plazaZ - E.plazaSize / 2 - 90   -- derrière le parvis (pelouse, arbres épars)
+	local farZ = field.goalZ + 40                 -- derrière le panneau de classement
+
+	-- La zone d'entraînement est plantée à largeur FIXE (Config.Field.width, non
+	-- mise à l'échelle) à côté du terrain : le rectangle doit toujours la couvrir,
+	-- même quand le terrain agrandi par les renaissances demande moins.
+	local halfX = math.max(F.width + 40, field.width / 2 + 50)
+
+	local folder = Instance.new("Folder")
+	folder.Name = "MursPlot"
+	folder.Parent = field.root
+
+	local function wall(name: string, size: Vector3, cf: CFrame)
+		local w = part(name, size, cf, Color3.fromRGB(255, 255, 255), folder)
+		w.Transparency = 1
+		w.CanCollide = true
+		return w
+	end
+
+	local h = 70
+	local midZ = (farZ + nearZ) / 2
+	local spanZ = farZ - nearZ
+	wall("PlotGauche", Vector3.new(1, h, spanZ), CFrame.new(origin.X - halfX, origin.Y + h / 2, midZ))
+	wall("PlotDroit", Vector3.new(1, h, spanZ), CFrame.new(origin.X + halfX, origin.Y + h / 2, midZ))
+	wall("PlotFond", Vector3.new(halfX * 2, h, 1), CFrame.new(origin.X, origin.Y + h / 2, farZ))
+	wall("PlotArriere", Vector3.new(halfX * 2, h, 1), CFrame.new(origin.X, origin.Y + h / 2, nearZ))
 end
 
 -- DÉCOR : tribunes avec public, panneaux publicitaires, projecteurs et drapeaux
@@ -342,15 +390,18 @@ end
 
 -- Emplacements du terrain, dans l'ordre où ils se débloquent : base par base
 -- (attaque → gardien), centrés sur la largeur. Retourne une liste de
--- { base, position: Vector3 } de Config.totalSlots() entrées.
+-- { base, position: Vector3 } de Config.totalSlots() entrées (plus les
+-- emplacements bonus de field.bases si le terrain vient d'une renaissance).
 function FieldBuilder.slotLayout(field)
 	local startZ = (field.barrierZ or (field.origin.Z + Config.Field.shootLine)) + 14
 	local endZ = field.goalZ - Config.Field.goalDepth - 8
 	local spanZ = endZ - startZ
+	local bases = field.bases or Config.Bases
 
 	-- Positions, base par base.
 	local perBase = {}
-	for b, base in Config.Bases do
+	local total = 0
+	for b, base in bases do
 		perBase[b] = {}
 		local z = startZ + spanZ * base.depth
 		for c = 0, base.slots - 1 do
@@ -360,6 +411,7 @@ function FieldBuilder.slotLayout(field)
 				position = Vector3.new(x, field.origin.Y + 3.5, z),
 			})
 		end
+		total += base.slots
 	end
 
 	-- Ordre de déblocage EN ROND, du gardien vers l'attaque : les 4 premiers
@@ -368,7 +420,6 @@ function FieldBuilder.slotLayout(field)
 	local slots = {}
 	local order = { 4, 3, 2, 1 }  -- Gardien, Défense, Milieu, Attaque
 	local cursor = { 0, 0, 0, 0 }
-	local total = Config.totalSlots()
 	while #slots < total do
 		local placedOne = false
 		for _, b in order do
@@ -399,7 +450,7 @@ function FieldBuilder.buildBases(field)
 	local endZ = field.goalZ - Config.Field.goalDepth - 8
 	local spanZ = endZ - startZ
 
-	for i, base in Config.Bases do
+	for i, base in (field.bases or Config.Bases) do
 		local z = startZ + spanZ * base.depth
 		local bar = part("Base" .. i, Vector3.new(field.width + 8, 1.2, 1.2),
 			CFrame.new(field.origin.X, field.origin.Y + 7, z),
@@ -426,8 +477,9 @@ function FieldBuilder.buildBases(field)
 end
 
 -- Place l'équipe sur les bases. `squad` = liste de cartes { name, rarity },
--- au plus Config.MaxSquad. Les emplacements non pourvus restent vides (visibles
--- comme un socle gris) : on voit ce qu'il reste à débloquer.
+-- au plus le plafond du joueur (Config.MaxSquad + bonus de renaissance). Les
+-- emplacements non pourvus restent vides (visibles comme un socle gris) : on
+-- voit ce qu'il reste à débloquer.
 function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 	field.figuresFolder:ClearAllChildren()
 	local slots = FieldBuilder.slotLayout(field)

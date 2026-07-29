@@ -36,7 +36,8 @@ Config.Balls = {
 }
 
 -------------------------------------------------------------------------------
--- ÉQUIPE : 4 BASES (les tiges du baby-foot), 11 JOUEURS AU MAXIMUM.
+-- ÉQUIPE : 4 BASES (les tiges du baby-foot), 11 JOUEURS DE BASE (davantage à
+-- chaque renaissance, voir Config.extraSlotsFromRebirths).
 -- Répartition d'un vrai baby-foot vue depuis le tireur : attaque adverse en
 -- premier, gardien au fond. 3 + 5 + 2 + 1 = 11.
 -- depth = position de la base entre la ligne d'engagement (0) et le but (1).
@@ -48,13 +49,12 @@ Config.Bases = {
 	{ name = "Gardien", slots = 1, depth = 0.90 },
 }
 
-Config.MaxSquad = 11        -- plafond dur : on ne place jamais plus de 11 joueurs
+Config.MaxSquad = 11        -- plafond de base : chaque renaissance l'augmente (voir extraSlotsFromRebirths)
 -- L'équipe est COMPLÈTE dès le départ : 11 emplacements ouverts, 11 joueurs
 -- posés. Les acheter un par un laissait le terrain à moitié vide et donnait
 -- l'impression qu'il manquait des joueurs. La progression, ce n'est pas le
 -- nombre : ce sont les dés, qui remplacent les Communs par des raretés.
 Config.StartingSlots = 11
-Config.StarterCards = Config.MaxSquad
 Config.StarterRarity = "commun"
 
 -- Coût du prochain emplacement (du 5e au 11e).
@@ -68,13 +68,48 @@ function Config.slotCost(unlocked: number): number
 	return math.floor(Config.Slot.baseCost * (Config.Slot.costGrowth ^ step))
 end
 
--- Nombre total d'emplacements du terrain (= somme des bases).
-function Config.totalSlots(): number
+-- Nombre total d'emplacements du terrain (= somme des bases, + les emplacements
+-- bonus gagnés par renaissance).
+function Config.totalSlots(extra: number?): number
 	local n = 0
 	for _, base in Config.Bases do
 		n += base.slots
 	end
-	return n
+	return n + (extra or 0)
+end
+
+-- Config.Bases avec `extra` emplacements en plus, répartis au prorata entre les
+-- 4 bases (méthode du plus grand reste, jamais de slot retiré). Utilisé par
+-- FieldBuilder pour agrandir l'équipe à chaque renaissance sans toucher à
+-- l'équilibre attaque/milieu/défense/gardien.
+function Config.basesWithExtra(extra: number?)
+	local e = math.max(0, math.floor(extra or 0))
+	if e == 0 then return Config.Bases end
+
+	local total = Config.totalSlots()
+	local shares = {}
+	local assigned = 0
+	for i, base in Config.Bases do
+		local raw = e * (base.slots / total)
+		local whole = math.floor(raw)
+		shares[i] = { whole = whole, frac = raw - whole }
+		assigned += whole
+	end
+
+	local order = {}
+	for i in Config.Bases do table.insert(order, i) end
+	table.sort(order, function(a, b) return shares[a].frac > shares[b].frac end)
+	local remaining = e - assigned
+	for k = 1, remaining do
+		local i = order[((k - 1) % #order) + 1]
+		shares[i].whole += 1
+	end
+
+	local out = {}
+	for i, base in Config.Bases do
+		out[i] = { name = base.name, slots = base.slots + shares[i].whole, depth = base.depth }
+	end
+	return out
 end
 
 -------------------------------------------------------------------------------
@@ -88,6 +123,7 @@ Config.Rarities = {
 	{ key = "epique",     name = "Épique",     mult = 8,  weight = 13, color = Color3.fromRGB(180, 110, 255) },
 	{ key = "legendaire", name = "Légendaire", mult = 22, weight = 5,  color = Color3.fromRGB(255, 180, 40)  },
 	{ key = "mythique",   name = "Mythique",   mult = 60, weight = 1,  color = Color3.fromRGB(255, 80, 120)  },
+	{ key = "divin",      name = "Divin",      mult = 120, weight = 0.15, color = Color3.fromRGB(255, 255, 255) },
 }
 
 function Config.rarity(key: string)
@@ -145,9 +181,24 @@ Config.PlayerValue = {
 -------------------------------------------------------------------------------
 -- La collection de joueurs n'est PAS remise à zéro : c'est la progression longue
 -- du jeu. Une renaissance ne reprend que l'argent, la puissance et le matériel.
+--
+-- Chaque renaissance agrandit aussi le terrain et l'équipe (donc plus de
+-- joueurs à toucher, donc plus d'argent par tir) — mais le but s'éloigne
+-- d'autant (il faut plus de puissance pour l'atteindre) et TOUTES les
+-- améliorations (haltères, balle, dés, valeur joueur) coûtent bien plus cher :
+-- juste après une renaissance, argent et puissance repartent de zéro, donc on
+-- gagne beaucoup moins qu'avant tout en payant beaucoup plus.
 Config.Rebirth = {
 	baseCost = 50000,      -- coût de la 1re renaissance
 	costGrowth = 4,        -- coût *= 4 par renaissance
+
+	fieldGrowthPerRebirth = 0.15,  -- +15 % de longueur/largeur du terrain par renaissance
+	maxFieldGrowth = 1.5,          -- plafond : terrain au maximum 2.5x plus grand
+
+	extraSlotsPerRebirth = 3,      -- +3 emplacements de joueurs par renaissance
+	maxExtraSlots = 30,            -- plafond des emplacements bonus (donc 41 joueurs max)
+
+	upgradeCostGrowthPerRebirth = 0.4,  -- +40 % sur le coût des améliorations par renaissance
 }
 
 function Config.rebirthMultiplier(rebirths: number, hasRebirthPass: boolean): number
@@ -158,6 +209,25 @@ end
 
 function Config.rebirthCost(rebirths: number): number
 	return math.floor(Config.Rebirth.baseCost * (Config.Rebirth.costGrowth ^ rebirths))
+end
+
+-- Multiplicateur de taille du terrain (longueur/largeur), plafonné pour ne
+-- jamais empiéter sur le plot du voisin (voir SLOT_SPACING dans Main.server).
+function Config.fieldSizeMultiplier(rebirths: number): number
+	return 1 + math.min(rebirths * Config.Rebirth.fieldGrowthPerRebirth, Config.Rebirth.maxFieldGrowth)
+end
+
+-- Emplacements de joueurs supplémentaires (au-delà des 11 de base) gagnés par
+-- les renaissances, plafonnés.
+function Config.extraSlotsFromRebirths(rebirths: number): number
+	return math.min(rebirths * Config.Rebirth.extraSlotsPerRebirth, Config.Rebirth.maxExtraSlots)
+end
+
+-- Coût des améliorations (haltère, balle, dés, emplacement, valeur joueur) :
+-- multiplie le coût de base. La renaissance elle-même (Config.rebirthCost)
+-- n'est PAS concernée, sinon la boucle s'auto-alimenterait.
+function Config.upgradeCostMultiplier(rebirths: number): number
+	return (1 + Config.Rebirth.upgradeCostGrowthPerRebirth) ^ rebirths
 end
 
 -------------------------------------------------------------------------------
@@ -216,7 +286,7 @@ end
 -- Quand Roblox transmet une demande de suppression (Creator Dashboard → e-mail
 -- « Right to Erasure ») pour un joueur qui ne revient pas, colle son UserId ici :
 -- le prochain démarrage de serveur efface ses données, puis tu peux retirer la
--- ligne. Un joueur en jeu, lui, se sert tout seul depuis la boutique.
+-- ligne.
 --
 --   Config.ErasureRequests = { 1234567890, 987654321 }
 -------------------------------------------------------------------------------
