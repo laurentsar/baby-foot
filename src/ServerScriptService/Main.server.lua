@@ -446,7 +446,10 @@ rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
 	-- hitValue (somme des multiplicateurs) plutôt qu'un simple nombre de touches.
 	local perHit = Config.playerValueAt(session.data.valueLevel)
 		* Config.Balls[session.data.ball].moneyMult
-	local money = hitValue * perHit * moneyMultiplier(session)
+	-- Un but qui ne touche personne vaut au moins une figurine commune, sinon le
+	-- tir le plus precis du jeu rapporte 0.
+	local value = scored and math.max(hitValue, S.goalBaseValue) or hitValue
+	local money = value * perHit * moneyMultiplier(session)
 	if scored then
 		money *= S.scoreMultiplier  -- x3 si la balle atteint le fond
 	end

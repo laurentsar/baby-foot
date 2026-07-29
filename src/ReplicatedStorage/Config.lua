@@ -320,6 +320,10 @@ Config.Shot = {
 	-- Multiplie le TOTAL du tir : les joueurs touchés en chemin sont cumulés,
 	-- puis l'ensemble est multiplié si la balle finit au fond.
 	scoreMultiplier = 3,
+	-- Valeur plancher d'un but (en « figurines communes »). Sans ça, un tir qui
+	-- passe entre les figurines et rentre au fond affichait « BUT ! 0 touchés,
+	-- +0 $ » : le tir le plus précis du jeu ne rapportait rien.
+	goalBaseValue = 1,
 	ballLifetime = 6,      -- durée de vie max d'une balle (s)
 	cooldown = 0.30,       -- délai min serveur entre deux tirs
 	maxAngle = 55,         -- angle de tir max de part et d'autre de l'axe
@@ -497,18 +501,33 @@ function Config.randomPlayerName(rng: Random): string
 end
 
 -- Formatage abrégé des grands nombres (1.2K, 3.4M, ...).
+-- La table s'arrêtait à Qi (1e18) : au-delà, la boucle rendait la main sans
+-- avoir fini de diviser et l'écran affichait « 2706349910968550400.00Qi ».
+-- Les gains étant multiplicatifs (renaissances × rareté × valeur), on va bien
+-- plus haut que 1e18 : la table est allongée et, une fois épuisée, on bascule
+-- en notation scientifique plutôt que de cracher le nombre entier.
+local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" }
+
 function Config.abbreviate(n: number): string
-	local suffixes = { "", "K", "M", "B", "T", "Qa", "Qi" }
+	if n ~= n or n == math.huge or n == -math.huge then
+		return "∞"
+	end
+	local sign = n < 0 and "-" or ""
+	local v = math.abs(n)
 	local i = 1
-	local v = n
-	while v >= 1000 and i < #suffixes do
+	-- Seuil à 999.995 et pas 1000 : le %.2f final arrondit 999.9999 en
+	-- « 1000.00K », qui devrait se lire « 1.00M ».
+	while v >= 999.995 and i < #SUFFIXES do
 		v /= 1000
 		i += 1
 	end
-	if i == 1 then
-		return tostring(math.floor(v))
+	if v >= 999.995 then
+		return sign .. string.format("%.2e", v * 1000 ^ (#SUFFIXES - 1))
 	end
-	return string.format("%.2f%s", v, suffixes[i])
+	if i == 1 then
+		return sign .. tostring(math.floor(v))
+	end
+	return sign .. string.format("%.2f%s", v, SUFFIXES[i])
 end
 
 return Config

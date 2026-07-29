@@ -475,7 +475,9 @@ end)
 local function toast(text: string, color: Color3?)
 	local t = make("TextLabel", {
 		Size = UDim2.fromOffset(460, 46),
-		Position = UDim2.new(0.5, -230, 0, 90),
+		-- Sous le panneau de stats (16 + 130), qu'il recouvrait sur les écrans
+		-- étroits : le bandeau masquait renaissances et multiplicateur.
+		Position = UDim2.new(0.5, -230, 0, 160),
 		BackgroundColor3 = color or Color3.fromRGB(40, 44, 60),
 		TextColor3 = Color3.fromRGB(255, 255, 255),
 		Font = Enum.Font.GothamBold, TextScaled = true,
