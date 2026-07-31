@@ -18,6 +18,10 @@ local EVENT_NAMES = {
 	"Gift",         -- client -> serveur : {to = userId, kind = "money"|"card", amount|cardIndex}
 	"Admin",        -- client -> serveur : commande admin (contrôlée serveur)
 	"UsePotion",    -- client -> serveur : boire une potion du sac à dos (clé)
+	"World",        -- client -> serveur : {kind = "buy"} ou {kind = "go", index = n}
+	"Pet",          -- client -> serveur : {kind = "equip"|"best"|"none", key = "..."}
+	"Egg",          -- client -> serveur : ouvrir un œuf (clé) — aussi appelé par le clic sur l'œuf
+	"PetResult",    -- serveur -> client : {pet = {...}, cost = n} pour l'animation d'éclosion
 	"Tutorial",     -- client -> serveur : tutoriel terminé (à ne plus rejouer)
 	"ReleaseSeen",  -- client -> serveur : pop-up des nouveautés lu (version en cours)
 	"Challenge",    -- serveur -> client : état du défi du loin + tableau des distances

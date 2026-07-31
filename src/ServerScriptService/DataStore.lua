@@ -42,6 +42,9 @@ function DataModule.default()
 		autoRoll = false,      -- ...et allumé ou non
 		luck = 0,        -- niveau de l'amélioration Chance (cf. Config.Luck)
 		world = 1,       -- monde débloqué le plus haut (cf. Config.Worlds) — gardé à la renaissance
+		worldAt = 1,     -- monde où l'on se trouve (téléportation) : c'est LUI qui donne le multiplicateur
+		pets = {},       -- sac à dos : { [clé de pet] = nombre }
+		petEquipped = "",-- un seul pet équipé à la fois (cf. Config.Eggs)
 		potions = {},    -- sac à dos : { [clé de potion] = nombre }
 		effects = {},    -- effets en cours : { [kind] = { mult = n, expires = <os.time> } }
 		tutorialDone = false,

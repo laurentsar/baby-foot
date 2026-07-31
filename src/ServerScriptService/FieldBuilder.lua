@@ -343,10 +343,9 @@ function FieldBuilder.buildPlotBoundary(field, origin: Vector3)
 	local nearZ = plazaZ - E.plazaSize / 2 - 90   -- derrière le parvis (pelouse, arbres épars)
 	local farZ = field.goalZ + 40                 -- derrière le panneau de classement
 
-	-- La zone d'entraînement est plantée à largeur FIXE (Config.Field.width, non
-	-- mise à l'échelle) à côté du terrain : le rectangle doit toujours la couvrir,
-	-- même quand le terrain agrandi par les renaissances demande moins.
-	local halfX = math.max(F.width + 40, field.width / 2 + 50)
+	-- Le rectangle doit couvrir les deux annexes à largeur FIXE (gym et plateforme
+	-- des œufs, à ±1,6 largeur) ET le terrain agrandi par les renaissances.
+	local halfX = math.max(F.width * 1.6 + 36, field.width / 2 + 50)
 
 	local folder = Instance.new("Folder")
 	folder.Name = "MursPlot"
@@ -1176,7 +1175,10 @@ function FieldBuilder.buildTrainingArea(originOverride: Vector3?)
 	model.Name = "ZoneEntrainement"
 	model.Parent = workspace
 
-	local base = Vector3.new(o.X - Config.Field.width, 1, o.Z + Config.Field.shootLine)
+	-- Même distance que la plateforme des œufs, de l'autre côté : sous l'ancien
+	-- écart (une seule largeur), un terrain agrandi par les renaissances passait
+	-- par-dessus le gym.
+	local base = Vector3.new(o.X - Config.Field.width * 1.6, 1, o.Z + Config.Field.shootLine)
 	part("SolGym", Vector3.new(40, 1, 40),
 		CFrame.new(base), Color3.fromRGB(50, 50, 65), model, Enum.Material.Metal)
 
@@ -1200,6 +1202,113 @@ function FieldBuilder.buildTrainingArea(originOverride: Vector3?)
 	pad.CanCollide = false
 
 	return { model = model, trainPos = base }
+end
+
+-- PLATEFORME DES ŒUFS : trois socles côte à côte, à droite du point de tir,
+-- face au joueur qui arrive de l'allée. On clique l'œuf pour l'ouvrir (le prix
+-- est écrit dessus) — le serveur revérifie tout, le clic n'est qu'une intention.
+--
+-- Elle est RECONSTRUITE à chaque changement de monde : les trois œufs affichés
+-- sont ceux du monde où l'on se trouve, jamais un mélange.
+--
+-- Retourne le modèle et la liste { key, clickDetector } à brancher côté serveur.
+function FieldBuilder.buildEggPlatform(originOverride: Vector3?, worldIndex: number?)
+	local o = originOverride or Config.Field.origin
+	local F = Config.Field
+	local world = Config.world(worldIndex)
+	local eggs = Config.eggsFor(worldIndex)
+
+	local model = Instance.new("Model")
+	model.Name = "PlateformeOeufs"
+	model.Parent = workspace
+
+	-- À 1,6 largeur du centre : au-delà du terrain le PLUS grand que les
+	-- renaissances puissent produire (1,25 largeur de demi-terrain), sinon la
+	-- plateforme finissait AVALÉE par le plateau d'un joueur très avancé. La zone
+	-- d'entraînement est à la même distance, de l'autre côté : les deux encadrent
+	-- le point de tir.
+	local base = Vector3.new(o.X + F.width * 1.6, o.Y, o.Z + F.shootLine)
+
+	local floor = part("SolOeufs", Vector3.new(46, 1.4, 34),
+		CFrame.new(base.X, base.Y + 0.7, base.Z), Color3.fromRGB(58, 62, 78), model, Enum.Material.Slate)
+	floor.CanCollide = true
+
+	local trim = part("BordOeufs", Vector3.new(48, 0.6, 36),
+		CFrame.new(base.X, base.Y + 0.2, base.Z), world.accent, model, Enum.Material.Neon)
+	trim.CanCollide = false
+
+	-- Enseigne de la plateforme.
+	local signPost = part("MatEnseigne", Vector3.new(1.2, 14, 1.2),
+		CFrame.new(base.X, base.Y + 7, base.Z - 15), Color3.fromRGB(40, 44, 58), model, Enum.Material.Metal)
+	signPost.CanCollide = false
+	local signTitle = Instance.new("BillboardGui")
+	signTitle.Name = "Enseigne"
+	signTitle.Size = UDim2.fromOffset(260, 60)
+	signTitle.StudsOffset = Vector3.new(0, 8, 0)
+	signTitle.AlwaysOnTop = false
+	signTitle.MaxDistance = 260
+	signTitle.Parent = signPost
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.fromScale(1, 1)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "🥚 ŒUFS — " .. string.upper(world.name)
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.TextScaled = true
+	titleLabel.TextColor3 = world.accent
+	titleLabel.TextStrokeTransparency = 0.2
+	titleLabel.Parent = signTitle
+
+	local spots = {}
+	for i, egg in eggs do
+		local x = base.X + (i - 2) * 14
+		local z = base.Z
+
+		local pedestal = part("SocleOeuf", Vector3.new(8, 3, 8),
+			CFrame.new(x, base.Y + 2.9, z), Color3.fromRGB(44, 48, 62), model, Enum.Material.Concrete)
+		local glow = part("HaloSocle", Vector3.new(9, 0.4, 9),
+			CFrame.new(x, base.Y + 4.5, z), egg.color, model, Enum.Material.Neon)
+		glow.CanCollide = false
+
+		-- L'œuf : une sphère un peu étirée, posée sur le socle.
+		local shell = part("Oeuf", Vector3.new(6, 7.6, 6),
+			CFrame.new(x, base.Y + 8.4, z), egg.color, model, Enum.Material.SmoothPlastic)
+		shell.Shape = Enum.PartType.Ball
+		shell.CanCollide = false
+		local speck = part("TacheOeuf", Vector3.new(6.1, 2.2, 6.1),
+			CFrame.new(x, base.Y + 9.6, z), Color3.fromRGB(250, 250, 255), model, Enum.Material.SmoothPlastic)
+		speck.Shape = Enum.PartType.Ball
+		speck.CanCollide = false
+		speck.Transparency = 0.35
+
+		-- Étiquette : nom + prix. Elle est réécrite par le serveur quand le prix
+		-- change (renaissance), d'où le nom d'instance stable.
+		local tag = Instance.new("BillboardGui")
+		tag.Name = "Etiquette"
+		tag.Size = UDim2.fromOffset(190, 62)
+		tag.StudsOffset = Vector3.new(0, 6.5, 0)
+		tag.MaxDistance = 200
+		tag.Parent = shell
+		local label = Instance.new("TextLabel")
+		label.Name = "Texte"
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = egg.name .. "\n" .. Config.abbreviate(egg.cost) .. " $"
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 15
+		label.TextColor3 = egg.color
+		label.TextStrokeTransparency = 0.25
+		label.Parent = tag
+
+		-- Le clic marche à la souris comme au doigt. MaxActivationDistance borné :
+		-- on ouvre l'œuf devant lequel on se trouve, pas celui d'en face.
+		local click = Instance.new("ClickDetector")
+		click.MaxActivationDistance = 26
+		click.Parent = shell
+
+		table.insert(spots, { key = egg.key, egg = egg, click = click, label = label, shell = shell })
+	end
+
+	return { model = model, spots = spots, base = base }
 end
 
 -- Grand panneau de classement mondial, placé au fond derrière le but.

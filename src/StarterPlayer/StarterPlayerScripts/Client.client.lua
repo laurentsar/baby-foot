@@ -37,6 +37,10 @@ local rUsePotion = Remotes.get("UsePotion")
 local rTutorial = Remotes.get("Tutorial")
 local rChallenge = Remotes.get("Challenge")
 local rReleaseSeen = Remotes.get("ReleaseSeen")
+local rWorld = Remotes.get("World")
+local rPet = Remotes.get("Pet")
+local rEgg = Remotes.get("Egg")
+local rPetResult = Remotes.get("PetResult")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -492,15 +496,53 @@ upgradeButton("value", 5)
 -- CHANCE : améliore ce que les dés sortent. Plafonnée à x5 côté serveur, le x20
 -- est une passe Robux à part (Config.LuckPassMultiplier).
 upgradeButton("luck", 6)
+-- MONDES : un bouton par monde. Le même bouton sert à débloquer (tant qu'on ne
+-- l'a pas) puis à s'y téléporter — c'est le libellé qui change, pas la place,
+-- sinon les boutons dansent d'une mise à jour de stats à l'autre.
 shopHeader("🌍 MONDES", 7, Color3.fromRGB(150, 220, 150))
-upgradeButton("world", 8)
-shopHeader("🔄 RENAISSANCE", 9, Color3.fromRGB(255, 120, 200))
+local worldButtons: { TextButton } = {}
+for i in Config.Worlds do
+	local b = button("…", Color3.fromRGB(80, 130, 90), shopScroll)
+	b.Size = UDim2.new(1, 0, 0, 50)
+	b.TextSize = 14
+	b.LayoutOrder = 7 + i
+	b.MouseButton1Click:Connect(function()
+		-- Le serveur tranche : si le monde n'est pas débloqué, « go » est refusé
+		-- et c'est « buy » qu'il faut envoyer. Le client sait lequel grâce aux
+		-- stats, mais ne décide de rien.
+		if worldButtons[i]:GetAttribute("Unlocked") then
+			rWorld:FireServer({ kind = "go", index = i })
+		else
+			rWorld:FireServer({ kind = "buy" })
+		end
+	end)
+	worldButtons[i] = b
+end
+
+-- ŒUFS : les trois œufs du monde où l'on se trouve. La plateforme in-game fait
+-- la même chose (on clique l'œuf), c'est le même chemin serveur — ce raccourci
+-- évite de traverser le stade quand on enchaîne les ouvertures.
+shopHeader("🥚 ŒUFS À PETS", 11, Color3.fromRGB(255, 190, 120))
+local eggButtons: { TextButton } = {}
+for i = 1, 3 do
+	local b = button("…", Color3.fromRGB(200, 150, 90), shopScroll)
+	b.Size = UDim2.new(1, 0, 0, 50)
+	b.TextSize = 14
+	b.LayoutOrder = 11 + i
+	b.MouseButton1Click:Connect(function()
+		local key = b:GetAttribute("EggKey")
+		if typeof(key) == "string" and key ~= "" then rEgg:FireServer(key) end
+	end)
+	eggButtons[i] = b
+end
+
+shopHeader("🔄 RENAISSANCE", 15, Color3.fromRGB(255, 120, 200))
 local rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
-rebirthBtn.Size = UDim2.new(1, 0, 0, 54); rebirthBtn.TextSize = 16; rebirthBtn.LayoutOrder = 10
+rebirthBtn.Size = UDim2.new(1, 0, 0, 54); rebirthBtn.TextSize = 16; rebirthBtn.LayoutOrder = 16
 rebirthBtn.MouseButton1Click:Connect(function() rRebirth:FireServer() end)
 
-shopHeader("💎 GAME PASSES (Robux)", 11, Color3.fromRGB(180, 130, 255))
-local passOrder = 12
+shopHeader("💎 GAME PASSES (Robux)", 17, Color3.fromRGB(180, 130, 255))
+local passOrder = 18
 for key, pass in Config.Passes do
 	-- Une passe sans ID ne peut pas être achetée : on l'affiche grisée plutôt
 	-- que de laisser cliquer sur un achat qui échoue.
@@ -525,12 +567,87 @@ end
 -- aucun bouton ne l'appelait — la fonctionnalité était devenue inatteignable.
 -- Deux clics : le premier prévient, le second (dans les 30 s) supprime.
 -------------------------------------------------------------------------------
-local eraseBtn = button("🗑 SUPPRIMER MES DONNÉES", Color3.fromRGB(180, 70, 70), shopScroll)
-eraseBtn.Size = UDim2.new(1, 0, 0, 40)
-eraseBtn.TextSize = 13
-eraseBtn.TextColor3 = Color3.fromRGB(255, 240, 240)
+-- Le bouton n'efface RIEN : il ouvre une fenêtre. Un bouton de suppression
+-- directement cliquable au milieu de la boutique, ça finit par partir tout seul —
+-- et ici « partir » veut dire être éjecté du jeu, données perdues.
+local eraseDim = make("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+	BackgroundTransparency = 0.5, BorderSizePixel = 0, Visible = false, ZIndex = 70,
+}, ui)
+
+local eraseCard = make("Frame", {
+	Size = UDim2.fromOffset(430, 200), Position = UDim2.new(0.5, -215, 0.5, -100),
+	BackgroundColor3 = BG, BorderSizePixel = 0, ZIndex = 71,
+}, eraseDim)
+corner(eraseCard, 16)
+make("UIStroke", { Color = Color3.fromRGB(220, 90, 90), Thickness = 2, Transparency = 0.2 }, eraseCard)
+
+local eraseText = make("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 110), Position = UDim2.fromOffset(16, 14),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.Gotham,
+	TextSize = 15, TextWrapped = true, TextColor3 = Color3.fromRGB(240, 232, 232),
+	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+	ZIndex = 72,
+}, eraseCard)
+
+local eraseCancel = button("ANNULER", Color3.fromRGB(90, 94, 112), eraseCard)
+eraseCancel.Size = UDim2.fromOffset(150, 36)
+eraseCancel.Position = UDim2.fromOffset(16, 146)
+eraseCancel.TextSize = 14
+eraseCancel.TextColor3 = Color3.fromRGB(240, 240, 250)
+eraseCancel.ZIndex = 72
+
+local eraseGo = button("", Color3.fromRGB(200, 70, 70), eraseCard)
+eraseGo.Size = UDim2.fromOffset(230, 36)
+eraseGo.Position = UDim2.fromOffset(184, 146)
+eraseGo.TextSize = 13
+eraseGo.TextColor3 = Color3.fromRGB(255, 240, 240)
+eraseGo.ZIndex = 72
+
+-- Deux étapes, calquées sur le serveur (qui exige lui aussi deux appels dans sa
+-- fenêtre de confirmation) : rien n'est supprimé au premier clic.
+local eraseStep = 1
+
+local function showErase(step: number)
+	eraseStep = step
+	if step == 1 then
+		eraseText.Text = "🗑 Supprimer TOUTES tes données de jeu : argent, puissance,"
+			.. " renaissances, collection, pets et potions.\n\nC'est définitif, et tu seras"
+			.. " déconnecté juste après. Tu pourras revenir, mais tout repartira de zéro."
+		eraseGo.Text = "CONTINUER…"
+	else
+		eraseText.Text = "⚠️ DERNIÈRE CHANCE.\n\nAu prochain clic, tes données sont effacées"
+			.. " et tu quittes la partie. Il n'y a pas de retour en arrière."
+		eraseGo.Text = "OUI, TOUT SUPPRIMER"
+	end
+end
+
+eraseCancel.MouseButton1Click:Connect(function()
+	eraseDim.Visible = false
+	showErase(1)
+end)
+
+eraseGo.MouseButton1Click:Connect(function()
+	-- Chaque clic envoie l'intention au serveur : le premier l'arme, le second
+	-- exécute. La fenêtre de 30 s côté serveur reste le garde-fou final.
+	rErase:FireServer()
+	if eraseStep == 1 then
+		showErase(2)
+	else
+		eraseDim.Visible = false
+		showErase(1)
+	end
+end)
+
+local eraseBtn = button("🗑 Supprimer mes données (RGPD)", Color3.fromRGB(120, 70, 70), shopScroll)
+eraseBtn.Size = UDim2.new(1, 0, 0, 36)
+eraseBtn.TextSize = 12
+eraseBtn.TextColor3 = Color3.fromRGB(255, 235, 235)
 eraseBtn.LayoutOrder = passOrder + 10
-eraseBtn.MouseButton1Click:Connect(function() rErase:FireServer() end)
+eraseBtn.MouseButton1Click:Connect(function()
+	showErase(1)
+	eraseDim.Visible = true
+end)
 
 -------------------------------------------------------------------------------
 -- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.
@@ -784,6 +901,9 @@ local giftPanel = sidePanel(Color3.fromRGB(235, 130, 170))
 local giftScroll = panelScroll(giftPanel)
 local giftTarget: number? = nil
 local giftTargetName = ""
+-- Argent connu du client, pour les boutons de don en pourcentage. Le serveur
+-- rabote de toute façon : ce n'est qu'un confort de saisie.
+local lastMoney = 0
 local roster: { any } = {}
 local lastCards: { any } = {}
 
@@ -845,15 +965,50 @@ refreshGift = function()
 	corner(amountBox, 8)
 	order += 1
 
-	local sendMoney = button("OFFRIR À " .. string.upper(giftTargetName), Color3.fromRGB(235, 170, 60), giftScroll)
+	-- MONTANTS TOUT PRÊTS.
+	--
+	-- Le champ de saisie ouvrait le clavier du téléphone par-dessus le jeu, et
+	-- c'est en cherchant à le refermer qu'on finissait par sortir de la partie :
+	-- « je veux donner de l'argent, et ça me fait quitter ». Trois boutons de
+	-- pourcentage suffisent pour donner sans jamais taper une seule touche — le
+	-- champ reste là pour ceux qui veulent un montant précis.
+	local presets = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = order,
+	}, giftScroll)
+	order += 1
+	local presetDefs = { { "10 %", 0.10 }, { "25 %", 0.25 }, { "MAX", Config.Gift.maxShare } }
+	for i, def in presetDefs do
+		local b = button(def[1] :: string, Color3.fromRGB(235, 170, 60), presets)
+		b.Size = UDim2.new(0.32, 0, 1, 0)
+		b.Position = UDim2.new((i - 1) * 0.34, 0, 0, 0)
+		b.TextSize = 13
+		b.MouseButton1Click:Connect(function()
+			-- Le serveur rabote de toute façon à Config.Gift.maxShare : ce calcul
+			-- n'est qu'un confort d'affichage, il n'autorise rien.
+			local amount = math.floor((lastMoney or 0) * (def[2] :: number))
+			if amount < Config.Gift.minMoney then
+				toast("Pas assez d'argent pour un don.", Color3.fromRGB(120, 60, 60))
+				return
+			end
+			rGift:FireServer({ to = giftTarget, kind = "money", amount = amount })
+		end)
+	end
+
+	local sendMoney = button("OFFRIR LE MONTANT SAISI", Color3.fromRGB(235, 170, 60), giftScroll)
 	sendMoney.Size = UDim2.new(1, 0, 0, 34)
-	sendMoney.TextSize = 14
+	sendMoney.TextSize = 13
 	sendMoney.LayoutOrder = order
 	sendMoney.MouseButton1Click:Connect(function()
 		local amount = tonumber(amountBox.Text)
-		if not amount then return end
+		if not amount then
+			toast("Saisis un montant, ou utilise 10 % / 25 % / MAX.", Color3.fromRGB(120, 90, 60))
+			return
+		end
 		rGift:FireServer({ to = giftTarget, kind = "money", amount = amount })
 		amountBox.Text = ""
+		-- Le clavier mobile reste ouvert tant qu'on ne lui dit pas de partir, et
+		-- c'est lui qui masquait le jeu après un don.
+		amountBox:ReleaseFocus()
 	end)
 	order += 1
 
@@ -904,6 +1059,9 @@ local bagPanel = sidePanel(Color3.fromRGB(120, 210, 180))
 local bagScroll = panelScroll(bagPanel)
 local lastPotions: { [string]: number } = {}
 local lastEffects: { [string]: any } = {}
+local lastPets: { [string]: number } = {}
+local petEquipped = ""
+local petMult = 1
 
 local function bagLine(text: string, color: Color3, order: number, height: number)
 	make("TextLabel", {
@@ -955,8 +1113,63 @@ local function refreshBag()
 		end
 	end
 	if not any then
-		bagLine("Sac vide — finis dans les 3 premiers du défi du loin\n(toutes les 10 min) pour gagner des potions.",
+		bagLine("Aucune potion — finis dans les 3 premiers du défi du loin\n(toutes les 10 min) pour en gagner.",
 			Color3.fromRGB(180, 180, 200), order, 34)
+		order += 1
+	end
+
+	-- PETS : un seul est équipé à la fois, les autres attendent dans le sac.
+	bagLine("🐾 PETS", GOLD, order, 22); order += 1
+
+	local ownedPets = {}
+	for key, count in lastPets do
+		local pet = Config.pet(key)
+		if pet and (tonumber(count) or 0) > 0 then
+			table.insert(ownedPets, { key = key, pet = pet, count = count })
+		end
+	end
+	-- Du meilleur au moins bon : le pet qu'on veut équiper est en haut.
+	table.sort(ownedPets, function(a, b)
+		if a.pet.mult == b.pet.mult then return a.pet.name < b.pet.name end
+		return a.pet.mult > b.pet.mult
+	end)
+
+	if #ownedPets == 0 then
+		bagLine("Aucun pet — va ouvrir un œuf sur la plateforme 🥚\n(ou depuis la boutique).",
+			Color3.fromRGB(180, 180, 200), order, 34)
+		return
+	end
+
+	local bestBtn = button("⭐ ÉQUIPER LE MEILLEUR", Color3.fromRGB(120, 200, 140), bagScroll)
+	bestBtn.Size = UDim2.new(1, 0, 0, 32)
+	bestBtn.TextSize = 14
+	bestBtn.LayoutOrder = order
+	bestBtn.MouseButton1Click:Connect(function() rPet:FireServer({ kind = "best" }) end)
+	order += 1
+
+	if petEquipped ~= "" then
+		local unequip = button("Ranger le pet équipé", Color3.fromRGB(100, 104, 124), bagScroll)
+		unequip.Size = UDim2.new(1, 0, 0, 28)
+		unequip.TextSize = 13
+		unequip.TextColor3 = Color3.fromRGB(235, 235, 245)
+		unequip.LayoutOrder = order
+		unequip.MouseButton1Click:Connect(function() rPet:FireServer({ kind = "none" }) end)
+		order += 1
+	end
+
+	for _, entry in ownedPets do
+		local isOn = entry.key == petEquipped
+		local b = button(string.format("%s %s x%d — argent x%s", if isOn then "✅" else "🐾",
+			entry.pet.name, entry.count, fmtMult(entry.pet.mult)),
+			if isOn then Color3.fromRGB(120, 220, 150) else Color3.fromRGB(70, 74, 92), bagScroll)
+		b.Size = UDim2.new(1, 0, 0, 30)
+		b.TextSize = 13
+		b.LayoutOrder = order
+		b.TextColor3 = if isOn then Color3.fromRGB(15, 15, 20) else entry.pet.color
+		b.MouseButton1Click:Connect(function()
+			rPet:FireServer({ kind = "equip", key = entry.key })
+		end)
+		order += 1
 	end
 end
 
@@ -1349,6 +1562,22 @@ rDiceResult.OnClientEvent:Connect(function(res)
 		r.color)
 end)
 
+-- Éclosion d'un œuf : le pet obtenu, coloré par le sien. Plus le multiplicateur
+-- est gros, plus ça vibre — on doit sentir un bon tirage sans lire l'écran.
+rPetResult.OnClientEvent:Connect(function(res)
+	local pet = Config.pet(res.key)
+	local color = pet and pet.color or GOLD
+	if (res.mult or 1) >= 50 then
+		buzz(0.9, 0.14)
+		task.delay(0.22, function() buzz(0.9, 0.2) end)
+	else
+		buzz(0.45, 0.1)
+	end
+	toast(string.format("🥚 %s → %s  (argent x%s)%s", res.egg or "Œuf", res.name or res.key,
+		fmtMult(res.mult or 1), if res.equipped then "  • équipé !" else ""), color)
+	if bagPanel.Visible then refreshBag() end
+end)
+
 rShotResult.OnClientEvent:Connect(function(res)
 	-- Tir de défi : un seul chiffre compte, la distance. Pas d'argent à annoncer.
 	if res.challenge then
@@ -1464,6 +1693,7 @@ applyAmbiance(1)
 -- MAJ des stats + libellés de la boutique.
 -------------------------------------------------------------------------------
 rStats.OnClientEvent:Connect(function(s)
+	lastMoney = s.money or 0
 	lblMoney.Text = "💰 " .. Config.abbreviate(s.money) .. " $"
 	lblPower.Text = "💪 Puissance : " .. Config.abbreviate(s.power)
 	lblRebirth.Text = "🔄 Renaissances : " .. s.rebirths
@@ -1526,17 +1756,51 @@ rStats.OnClientEvent:Connect(function(s)
 		luckBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
 	end
 
-	-- MONDES : le monde courant et son multiplicateur, puis le prochain palier.
-	local worldBtn = upgradeButtons.world
-	if s.nextWorld then
-		worldBtn.Text = string.format("🌍 %s (x%s) → %s (x%s)\n%s $",
-			s.world.name, fmtMult(s.world.mult), s.nextWorld.name,
-			fmtMult(s.nextWorld.mult), Config.abbreviate(s.nextWorld.cost))
-		worldBtn.BackgroundColor3 = s.money >= s.nextWorld.cost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(80, 120, 90)
-	else
-		worldBtn.Text = string.format("🌍 %s (x%s)\nTous les mondes débloqués", s.world.name, fmtMult(s.world.mult))
-		worldBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+	-- MONDES : débloqué → bouton de téléportation ; pas encore → bouton d'achat
+	-- (et seul le monde juste après celui qu'on a peut être acheté).
+	for i, w in s.worlds or {} do
+		local b = worldButtons[i]
+		if b then
+			b:SetAttribute("Unlocked", w.unlocked == true)
+			if w.here then
+				b.Text = string.format("🌍 %s (x%s)  •  TU ES ICI", w.name, fmtMult(w.mult))
+				b.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+			elseif w.unlocked then
+				b.Text = string.format("🚀 Aller au monde %s  (x%s)", w.name, fmtMult(w.mult))
+				b.BackgroundColor3 = Color3.fromRGB(80, 150, 220)
+			elseif i == (s.worldUnlocked or 1) + 1 then
+				b.Text = string.format("🔒 %s (x%s) — débloquer\n%s $", w.name, fmtMult(w.mult),
+					Config.abbreviate(w.cost))
+				b.BackgroundColor3 = s.money >= w.cost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(80, 100, 92)
+			else
+				b.Text = string.format("🔒 %s (x%s)\nDébloque d'abord %s", w.name, fmtMult(w.mult),
+					(s.worlds[i - 1] and s.worlds[i - 1].name) or "le monde précédent")
+				b.BackgroundColor3 = Color3.fromRGB(70, 72, 86)
+			end
+		end
 	end
+
+	-- ŒUFS du monde courant : nom + prix, verts quand on peut se les offrir.
+	for i = 1, 3 do
+		local b = eggButtons[i]
+		local egg = (s.eggs or {})[i]
+		if b then
+			if egg then
+				b:SetAttribute("EggKey", egg.key)
+				b.Text = string.format("🥚 %s\n%s $", egg.name, Config.abbreviate(egg.cost))
+				b.BackgroundColor3 = s.money >= egg.cost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(150, 115, 70)
+				b.Visible = true
+			else
+				b.Visible = false
+			end
+		end
+	end
+
+	-- PETS : contenu du sac et pet équipé (le panneau ne se redessine que s'il
+	-- est ouvert, cf. refreshBag).
+	lastPets = s.pets or {}
+	petEquipped = s.petEquipped or ""
+	petMult = s.petMult or 1
 
 	-- SAC À DOS : contenu et effets, rafraîchis seulement si le panneau est ouvert.
 	lastPotions = s.potions or {}

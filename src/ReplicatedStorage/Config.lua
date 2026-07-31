@@ -19,6 +19,22 @@ Config.SaveKey = "BabyFootPower_v1"  -- change la clé => reset des sauvegardes
 -- pour corriger une faute de frappe ne doit pas relancer une annonce.
 -------------------------------------------------------------------------------
 Config.Release = {
+	version = "1.2.0",
+	title = "🐾 Mise à jour 1.2 — Pets, Œufs & Téléportation",
+	notes = {
+		"🥚 ŒUFS & PETS : une plateforme à côté du terrain, 3 œufs par monde (9 en tout), 36 pets à collectionner. Chaque pet multiplie l'argent — de ×1,1 à ×6000.",
+		"🐾 SAC À DOS : tes pets s'y rangent, un seul s'équipe à la fois et te suit en jeu. Bouton ⭐ ÉQUIPER LE MEILLEUR pour ne jamais se tromper.",
+		"🚀 TÉLÉPORTATION : va dans n'importe quel monde déjà débloqué depuis la boutique. Attention, c'est le monde OÙ TU ES qui donne son multiplicateur.",
+		"🌍 MONDES BEAUCOUP PLUS CHERS : Galactique 1 Sx, Radioactif 1 Oc — ce sont des paliers de fin de partie, plus des cases à cocher.",
+		"🎁 DONS : trois boutons 10 % / 25 % / MAX pour offrir sans ouvrir le clavier du téléphone (c'est lui qui faisait quitter la partie).",
+		"🗑 La suppression de données passe maintenant par une fenêtre de confirmation en deux temps : plus moyen de se faire éjecter par erreur.",
+	},
+}
+
+-- Historique : seul `Config.Release` est affiché. On garde la version
+-- précédente ici pour retrouver ce qui a été annoncé quand (et pour recopier la
+-- forme des notes à la prochaine mise à jour).
+Config.PreviousRelease = {
 	version = "1.1.0",
 	title = "🎉 Mise à jour 1.1 — Chance, Mondes & Défis",
 	notes = {
@@ -312,14 +328,17 @@ end
 -- Les seuils sont volontairement énormes : un monde n'est pas une amélioration
 -- de plus, c'est un palier de fin de partie.
 -------------------------------------------------------------------------------
+-- Prix relevés le 2026-07-31 : à 1 Qa / 1 Sx, les deux mondes tombaient dans la
+-- même soirée de jeu et le Radioactif n'était plus un objectif. Un monde doit
+-- rester un palier qu'on VISE, pas une case qu'on coche en passant.
 Config.Worlds = {
 	{ key = "stade",      name = "Stade",       cost = 0,     moneyMult = 1,
 	  ground = Color3.fromRGB(30, 140, 70),   groundMaterial = Enum.Material.Grass,
 	  wall = Color3.fromRGB(120, 80, 45),     accent = Color3.fromRGB(80, 220, 255) },
-	{ key = "galactique", name = "Galactique",  cost = 1e15,  moneyMult = 2,
+	{ key = "galactique", name = "Galactique",  cost = 1e21,  moneyMult = 2,
 	  ground = Color3.fromRGB(38, 26, 78),    groundMaterial = Enum.Material.Slate,
 	  wall = Color3.fromRGB(70, 58, 130),     accent = Color3.fromRGB(180, 110, 255) },
-	{ key = "radioactif", name = "Radioactif",  cost = 1e21,  moneyMult = 4,
+	{ key = "radioactif", name = "Radioactif",  cost = 1e27,  moneyMult = 4,
 	  ground = Color3.fromRGB(96, 168, 40),   groundMaterial = Enum.Material.Ground,
 	  wall = Color3.fromRGB(64, 92, 30),      accent = Color3.fromRGB(180, 255, 60) },
 }
@@ -336,6 +355,156 @@ end
 function Config.nextWorld(index: number?)
 	local i = math.clamp(math.floor(index or 1), 1, #Config.Worlds)
 	return Config.Worlds[i + 1]
+end
+
+-------------------------------------------------------------------------------
+-- ŒUFS ET PETS.
+--
+-- Trois œufs par monde, de plus en plus chers, sur la plateforme à côté du
+-- terrain. Un œuf ne donne QUE des pets de son monde : c'est ce qui fait qu'on
+-- veut débloquer le monde suivant, et pas seulement son multiplicateur.
+--
+-- Un pet multiplie l'argent gagné, et UN SEUL est équipé à la fois : sans cette
+-- règle, la collection de pets remplacerait toute la boucle du jeu (il suffirait
+-- d'ouvrir des œufs). Les autres restent dans le sac à dos.
+--
+-- `weight` = poids de tirage dans l'œuf. `mult` = multiplicateur d'argent.
+-------------------------------------------------------------------------------
+Config.Eggs = {
+	-- MONDE 1 — STADE
+	{
+		{ key = "oeuf_herbe", name = "Œuf d'Herbe", cost = 25e3,
+		  color = Color3.fromRGB(120, 200, 110), pets = {
+			{ key = "p_balle",    name = "Balle Rebondissante", mult = 1.1,  weight = 60, color = Color3.fromRGB(230, 230, 235) },
+			{ key = "p_chaton",   name = "Chaton du Stade",     mult = 1.25, weight = 30, color = Color3.fromRGB(235, 180, 120) },
+			{ key = "p_coq",      name = "Petit Coq",           mult = 1.5,  weight = 9,  color = Color3.fromRGB(230, 90, 70)   },
+			{ key = "p_coq_or",   name = "Coq d'Or",            mult = 2,    weight = 1,  color = Color3.fromRGB(255, 205, 60)  },
+		} },
+		{ key = "oeuf_cuir", name = "Œuf de Cuir", cost = 2e6,
+		  color = Color3.fromRGB(150, 110, 70), pets = {
+			{ key = "p_sifflet",  name = "Sifflet Vivant",      mult = 1.6,  weight = 55, color = Color3.fromRGB(200, 200, 210) },
+			{ key = "p_crampon",  name = "Crampon Fou",         mult = 2,    weight = 32, color = Color3.fromRGB(120, 130, 160) },
+			{ key = "p_mascotte", name = "Mascotte",            mult = 2.6,  weight = 11, color = Color3.fromRGB(240, 120, 180) },
+			{ key = "p_capitaine",name = "Capitaine",           mult = 3.5,  weight = 2,  color = Color3.fromRGB(255, 170, 40)  },
+		} },
+		{ key = "oeuf_trophee", name = "Œuf Trophée", cost = 150e6,
+		  color = Color3.fromRGB(255, 200, 70), pets = {
+			{ key = "p_gant",     name = "Gant de Gardien",     mult = 3,    weight = 55, color = Color3.fromRGB(90, 200, 160)  },
+			{ key = "p_ballon_or",name = "Ballon d'Or",         mult = 4,    weight = 30, color = Color3.fromRGB(255, 215, 80)  },
+			{ key = "p_coupe",    name = "Petite Coupe",        mult = 5.5,  weight = 13, color = Color3.fromRGB(255, 235, 150) },
+			{ key = "p_legende",  name = "Légende du Baby",     mult = 8,    weight = 2,  color = Color3.fromRGB(255, 120, 200) },
+		} },
+	},
+	-- MONDE 2 — GALACTIQUE
+	{
+		{ key = "oeuf_meteore", name = "Œuf Météore", cost = 50e9,
+		  color = Color3.fromRGB(120, 110, 150), pets = {
+			{ key = "p_cailloustre", name = "Caillou Astral",   mult = 10,   weight = 58, color = Color3.fromRGB(150, 145, 170) },
+			{ key = "p_satellite",   name = "Petit Satellite",  mult = 13,   weight = 30, color = Color3.fromRGB(180, 190, 220) },
+			{ key = "p_comete",      name = "Comète",           mult = 17,   weight = 10, color = Color3.fromRGB(120, 200, 255) },
+			{ key = "p_pulsar",      name = "Pulsar",           mult = 24,   weight = 2,  color = Color3.fromRGB(210, 130, 255) },
+		} },
+		{ key = "oeuf_nebuleuse", name = "Œuf Nébuleuse", cost = 5e12,
+		  color = Color3.fromRGB(170, 100, 235), pets = {
+			{ key = "p_nuage",       name = "Nuage Stellaire",  mult = 26,   weight = 55, color = Color3.fromRGB(190, 150, 255) },
+			{ key = "p_alien",       name = "Petit Alien",      mult = 34,   weight = 31, color = Color3.fromRGB(120, 255, 170) },
+			{ key = "p_ovni",        name = "OVNI",             mult = 45,   weight = 12, color = Color3.fromRGB(160, 220, 255) },
+			{ key = "p_supernova",   name = "Supernova",        mult = 65,   weight = 2,  color = Color3.fromRGB(255, 200, 120) },
+		} },
+		{ key = "oeuf_trou_noir", name = "Œuf Trou Noir", cost = 500e12,
+		  color = Color3.fromRGB(40, 30, 60), pets = {
+			{ key = "p_etoile",      name = "Étoile Naine",     mult = 70,   weight = 55, color = Color3.fromRGB(255, 240, 190) },
+			{ key = "p_orbite",      name = "Anneau d'Orbite",  mult = 95,   weight = 30, color = Color3.fromRGB(190, 190, 255) },
+			{ key = "p_galaxie",     name = "Mini Galaxie",     mult = 130,  weight = 13, color = Color3.fromRGB(210, 120, 255) },
+			{ key = "p_singularite", name = "Singularité",      mult = 190,  weight = 2,  color = Color3.fromRGB(90, 60, 160)   },
+		} },
+	},
+	-- MONDE 3 — RADIOACTIF
+	{
+		{ key = "oeuf_fut", name = "Œuf Fût", cost = 1e17,
+		  color = Color3.fromRGB(150, 200, 60), pets = {
+			{ key = "p_goutte",   name = "Goutte Verte",        mult = 220,  weight = 58, color = Color3.fromRGB(160, 255, 90)  },
+			{ key = "p_rat",      name = "Rat Mutant",          mult = 300,  weight = 30, color = Color3.fromRGB(140, 180, 110) },
+			{ key = "p_masque",   name = "Masque à Gaz",        mult = 420,  weight = 10, color = Color3.fromRGB(90, 130, 90)   },
+			{ key = "p_barril",   name = "Barril Instable",     mult = 600,  weight = 2,  color = Color3.fromRGB(210, 255, 80)  },
+		} },
+		{ key = "oeuf_reacteur", name = "Œuf Réacteur", cost = 1e19,
+		  color = Color3.fromRGB(200, 255, 90), pets = {
+			{ key = "p_noyau",    name = "Noyau Chaud",         mult = 700,  weight = 55, color = Color3.fromRGB(255, 220, 90)  },
+			{ key = "p_isotope",  name = "Isotope",             mult = 950,  weight = 31, color = Color3.fromRGB(180, 255, 140) },
+			{ key = "p_geiger",   name = "Compteur Geiger",     mult = 1300, weight = 12, color = Color3.fromRGB(230, 230, 130) },
+			{ key = "p_fusion",   name = "Cœur de Fusion",      mult = 1900, weight = 2,  color = Color3.fromRGB(120, 255, 255) },
+		} },
+		{ key = "oeuf_mutation", name = "Œuf Mutation", cost = 1e21,
+		  color = Color3.fromRGB(120, 255, 160), pets = {
+			{ key = "p_tentacule",name = "Tentacule",           mult = 2200, weight = 55, color = Color3.fromRGB(150, 100, 200) },
+			{ key = "p_hydre",    name = "Hydre à Trois Têtes", mult = 3000, weight = 30, color = Color3.fromRGB(90, 220, 140)  },
+			{ key = "p_colosse",  name = "Colosse Vert",        mult = 4200, weight = 13, color = Color3.fromRGB(80, 255, 100)  },
+			{ key = "p_omega",    name = "Oméga",               mult = 6000, weight = 2,  color = Color3.fromRGB(255, 90, 220)  },
+		} },
+	},
+}
+
+-- Index construit une fois : clé de pet -> pet, et clé d'œuf -> œuf + monde.
+local PET_INDEX: { [string]: any } = {}
+local EGG_INDEX: { [string]: any } = {}
+for worldIndex, eggs in Config.Eggs do
+	for eggIndex, egg in eggs do
+		EGG_INDEX[egg.key] = { egg = egg, world = worldIndex, index = eggIndex }
+		for _, pet in egg.pets do
+			PET_INDEX[pet.key] = { pet = pet, world = worldIndex, egg = egg.key }
+		end
+	end
+end
+
+function Config.eggsFor(worldIndex: number?)
+	return Config.Eggs[math.clamp(math.floor(worldIndex or 1), 1, #Config.Eggs)]
+end
+
+-- Œuf par sa clé, avec le monde auquel il appartient (nil si clé inconnue).
+function Config.eggInfo(key: string)
+	return EGG_INDEX[key]
+end
+
+function Config.pet(key: string)
+	local entry = PET_INDEX[key]
+	return entry and entry.pet or nil
+end
+
+function Config.petMultiplier(key: string?): number
+	if not key or key == "" then return 1 end
+	local pet = Config.pet(key)
+	return pet and pet.mult or 1
+end
+
+-- Tirage d'un pet dans un œuf. Fait UNIQUEMENT côté serveur : le client ne
+-- connaît que le résultat.
+function Config.rollPet(rng: Random, egg): string
+	local total = 0
+	for _, pet in egg.pets do total += pet.weight end
+	local pick = rng:NextNumber() * total
+	local acc = 0
+	for _, pet in egg.pets do
+		acc += pet.weight
+		if pick <= acc then return pet.key end
+	end
+	return egg.pets[1].key
+end
+
+-- Meilleur pet possédé (celui au plus gros multiplicateur), pour le bouton
+-- « équiper le meilleur ». `owned` = { [clé] = nombre }.
+function Config.bestOwnedPet(owned: { [string]: number }?): string?
+	if not owned then return nil end
+	local bestKey, bestMult = nil, 0
+	for key, count in owned do
+		if (tonumber(count) or 0) > 0 then
+			local pet = Config.pet(key)
+			if pet and pet.mult > bestMult then
+				bestKey, bestMult = key, pet.mult
+			end
+		end
+	end
+	return bestKey
 end
 
 -------------------------------------------------------------------------------

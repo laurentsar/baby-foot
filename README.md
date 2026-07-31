@@ -47,31 +47,41 @@ des **renaissances** et grimpe au **classement mondial**.
    sort mieux qu'un Commun aux dés (le Commun, lui, n'est jamais touché : la
    chance reste bornée). Le **×20** est réservé à la passe Robux, et les deux se
    cumulent (plafond ×100).
-7. **Mondes** 🌍 — trois décors qui multiplient l'argent **en permanence** :
-   Stade (×1), **Galactique** (1 Qa → ×2), **Radioactif** (1 Sx → ×4). Achat
-   définitif : ni la renaissance ni une déconnexion ne les reprennent. Le terrain
-   est reconstruit à l'achat (sol, murs, but) et l'ambiance du client suit (ciel,
-   brume, étalonnage).
-8. **Renaissance** 🔄 — reset argent + upgrades contre un multiplicateur
+7. **Mondes** 🌍 — trois décors qui multiplient l'argent : Stade (×1),
+   **Galactique** (1 Sx → ×2), **Radioactif** (1 Oc → ×4). Achat **définitif**
+   (ni la renaissance ni une déconnexion ne les reprennent), et on se
+   **téléporte** ensuite librement entre les mondes débloqués depuis la boutique.
+   Le multiplicateur est celui du monde **où l'on se trouve** : revenir au Stade
+   pour le décor, c'est accepter de gagner moins. Terrain reconstruit à chaque
+   passage (sol, murs, but, plateforme des œufs) et ambiance client assortie
+   (ciel, brume, étalonnage).
+8. **Œufs & pets** 🥚 — une plateforme à côté du terrain porte **3 œufs par
+   monde** (9 au total). On clique un œuf pour l'ouvrir : il donne un **pet** de
+   son monde, qui **multiplie l'argent** (×1,1 au Stade jusqu'à ×6000 en
+   Radioactif). Les pets se rangent dans le **sac à dos**, **un seul est équipé**
+   à la fois et suit le joueur — bouton ⭐ *équiper le meilleur*. Les prix des
+   œufs sont fixes (pas de coefficient de renaissance) : l'étiquette posée sur
+   l'œuf dit toujours la vérité.
+9. **Renaissance** 🔄 — reset argent + upgrades contre un multiplicateur
    permanent : **×2, ×4, ×6, ×8… (2 × le nombre de renaissances)**.
    **La collection de joueurs, la Chance et les Mondes sont conservés.**
-9. **Défi du loin** 🏹 — **toutes les 10 minutes**, une manche d'une minute : le
+10. **Défi du loin** 🏹 — **toutes les 10 minutes**, une manche d'une minute : le
    terrain se vide (plus de figurines, plus de but, plus de murs) et le seul score
    est la **distance** du tir. Aucun argent n'y est gagné — les récompenses sont
    des **potions** : 1er ×3 argent 30 min, 2e ×2 puissance 10 min, 3e ×2 puissance
    5 min. Elles atterrissent dans le **sac à dos** 🎒 et se boivent quand on veut
    (deux potions du même type n'empilent pas les multiplicateurs : on garde le
    meilleur et on additionne le temps).
-10. **Hors ligne** 💤 — le jeu retient ton rythme de gain (argent/seconde) et t'en
+11. **Hors ligne** 💤 — le jeu retient ton rythme de gain (argent/seconde) et t'en
    reverse **35 %** pour le temps passé déconnecté, plafonné à **8 h**. Rien n'est
    simulé : c'est une moyenne glissante, honnête et incapable de dériver.
-11. **Tutoriel & nouveautés** 📚 — 8 écrans à la première partie (rejouables par
+12. **Tutoriel & nouveautés** 📚 — 8 écrans à la première partie (rejouables par
    ❓), et un pop-up 📣 qui annonce les nouveautés à la première connexion suivant
    une mise à jour (une seule ligne à changer : `Config.Release`).
-12. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
+13. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
    à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
    Le cycle vit côté serveur, le panneau ne fait que l'afficher.
-13. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
+14. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
    OrderedDataStore : un au parvis (visible dès l'arrivée) et le grand écran
    derrière le but. Une seule requête sert tous les panneaux.
 

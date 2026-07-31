@@ -40,6 +40,10 @@ local rUsePotion = Remotes.get("UsePotion")
 local rTutorial = Remotes.get("Tutorial")
 local rChallenge = Remotes.get("Challenge")
 local rReleaseSeen = Remotes.get("ReleaseSeen")
+local rWorld = Remotes.get("World")
+local rPet = Remotes.get("Pet")
+local rEgg = Remotes.get("Egg")
+local rPetResult = Remotes.get("PetResult")
 
 -- Tirage des dés : un seul générateur serveur, jamais le client.
 local rng = Random.new()
@@ -67,6 +71,11 @@ type Session = {
 	board: SurfaceGui?,        -- panneau de classement du parvis
 	-- DÉFI DU LOIN : meilleure distance de la manche en cours (studs).
 	challengeBest: number,
+	-- Plateforme des œufs du monde courant (reconstruite à chaque téléportation).
+	eggPlatform: any,
+	-- Modèle du pet équipé, qui suit le personnage.
+	petModel: Model?,
+	lastEgg: number,
 	-- Rythme de gain de la session, qui alimente les gains hors ligne.
 	sessionStart: number,
 	sessionEarned: number,
@@ -152,8 +161,12 @@ local function moneyMultiplier(session: Session): number
 	if session.passes.VIP then m *= 2 end
 	if session.passes.MoneyX2 then m *= 2 end
 	if boostActive() then m *= Config.Match.boostMult end
-	-- Monde débloqué : x2 en Galactique, x4 en Radioactif (permanent).
-	m *= Config.worldMultiplier(session.data.world)
+	-- Monde OÙ L'ON SE TROUVE (et pas le plus haut débloqué) : x2 en Galactique,
+	-- x4 en Radioactif. C'est ce qui donne du sens à la téléportation — revenir au
+	-- Stade pour le décor, c'est accepter de gagner moins.
+	m *= Config.worldMultiplier(session.data.worldAt or session.data.world)
+	-- Pet équipé.
+	m *= Config.petMultiplier(session.data.petEquipped)
 	-- Potion d'Or.
 	m *= effectMult(session, "money")
 	return m
@@ -247,12 +260,34 @@ local function buildStats(session: Session)
 		luckMult = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true),
 		luckCost = (if (d.luck or 0) < Config.Luck.maxLevel
 			then math.floor(Config.luckCost(d.luck or 0) * costMult) else nil),
-		-- MONDE courant et suivant à débloquer.
-		world = { name = Config.world(d.world).name, mult = Config.worldMultiplier(d.world), index = d.world or 1 },
+		-- MONDES : celui où l'on est, le plus haut débloqué, et la liste complète
+		-- (le client dessine un bouton par monde : débloquer ou s'y téléporter).
+		world = { name = Config.world(d.worldAt or d.world).name,
+			mult = Config.worldMultiplier(d.worldAt or d.world), index = d.worldAt or d.world or 1 },
+		worldUnlocked = d.world or 1,
+		worlds = (function()
+			local list = {}
+			for i, w in Config.Worlds do
+				list[i] = { name = w.name, cost = w.cost, mult = w.moneyMult,
+					unlocked = i <= (d.world or 1), here = i == (d.worldAt or d.world or 1) }
+			end
+			return list
+		end)(),
 		nextWorld = (function()
 			local nw = Config.nextWorld(d.world)
 			return nw and { name = nw.name, cost = nw.cost, mult = nw.moneyMult } or nil
 		end)(),
+		-- ŒUFS du monde où l'on se trouve + PETS possédés.
+		eggs = (function()
+			local list = {}
+			for i, egg in Config.eggsFor(d.worldAt or d.world) do
+				list[i] = { key = egg.key, name = egg.name, cost = egg.cost }
+			end
+			return list
+		end)(),
+		pets = d.pets or {},
+		petEquipped = d.petEquipped or "",
+		petMult = Config.petMultiplier(d.petEquipped),
 		-- SAC À DOS + effets en cours.
 		potions = d.potions or {},
 		effects = {
@@ -982,32 +1017,6 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 				rToast:FireClient(player, string.format("🍀 Chance x%s !", Config.luckFromLevel(d.luck)))
 			end
 		end
-	elseif kind == "world" then
-		-- MONDE SUIVANT : achat définitif, gardé à la renaissance. Le terrain est
-		-- reconstruit tout de suite — un monde qu'on ne verrait qu'à la prochaine
-		-- connexion ne ressemblerait pas à un achat.
-		local nw = Config.nextWorld(d.world)
-		if not nw then
-			rToast:FireClient(player, "Tu as déjà débloqué tous les mondes.")
-		elseif d.money < nw.cost then
-			rToast:FireClient(player, "Monde " .. nw.name .. " : il faut " .. Config.abbreviate(nw.cost) .. " $")
-		else
-			d.money -= nw.cost
-			d.world = (d.world or 1) + 1
-			if session.field and session.field.root then
-				session.field.root:Destroy()
-			end
-			local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
-			session.field = FieldBuilder.build(session.passes.BigField == true, origin,
-				Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.world)
-			-- La reconstruction repart d'un terrain nu : on repose l'équipe tout de
-			-- suite, sans attendre le prochain tir.
-			session.repopulatePending = false
-			repopulate(session)
-			if challengeActive then FieldBuilder.setChallengeMode(session.field, true) end
-			rToast:FireClient(player, "🌍 Monde " .. nw.name .. " débloqué — argent x"
-				.. nw.moneyMult .. " en permanence !")
-		end
 	end
 
 	updateLeaderstats(session, player)
@@ -1200,6 +1209,301 @@ rReleaseSeen.OnServerEvent:Connect(function(player)
 end)
 
 -------------------------------------------------------------------------------
+-- ŒUFS ET PETS.
+--
+-- La plateforme des œufs est PROPRE À CHAQUE PLOT et montre les trois œufs du
+-- monde où se trouve le joueur : elle est donc reconstruite à chaque
+-- téléportation. Le clic sur un œuf n'est qu'une intention — le serveur relit
+-- le prix, l'argent et le monde depuis SA copie des données.
+-------------------------------------------------------------------------------
+local hatchEgg  -- défini plus bas, référencé par les ClickDetector
+
+local function destroyEggPlatform(session: Session)
+	if session.eggPlatform and session.eggPlatform.model then
+		session.eggPlatform.model:Destroy()
+	end
+	session.eggPlatform = nil
+end
+
+local function buildEggPlatformFor(session: Session, player: Player)
+	destroyEggPlatform(session)
+	local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+	local platform = FieldBuilder.buildEggPlatform(origin, session.data.worldAt or session.data.world)
+	session.eggPlatform = platform
+	for _, spot in platform.spots do
+		spot.click.MouseClick:Connect(function(clicker)
+			-- Le plot appartient à un joueur : personne d'autre ne dépense son
+			-- argent, même en cliquant sur son œuf.
+			if clicker ~= player then return end
+			hatchEgg(player, spot.key)
+		end)
+	end
+end
+
+hatchEgg = function(player: Player, eggKey: string)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(eggKey) ~= "string" then return end
+	-- Anti-spam : l'éclosion renvoie stats + collection, et un ClickDetector se
+	-- déclenche aussi vite qu'on tapote.
+	local now = os.clock()
+	if now - session.lastEgg < 0.35 then return end
+	session.lastEgg = now
+
+	local info = Config.eggInfo(eggKey)
+	if not info then return end
+	local d = session.data
+	-- L'œuf appartient à un monde : on ne l'ouvre que depuis ce monde-là.
+	if info.world ~= (d.worldAt or d.world) then
+		rToast:FireClient(player, "Cet œuf est dans le monde " .. Config.world(info.world).name .. ".")
+		return
+	end
+
+	-- Prix FIXE, sans coefficient de renaissance : l'étiquette est écrite sur
+	-- l'œuf, dans le monde, et un prix qui grimperait sans que le panneau bouge
+	-- ferait mentir le décor. Les œufs sont déjà bornés par le monde qu'ils
+	-- exigent.
+	local cost = info.egg.cost
+	if d.money < cost then
+		rToast:FireClient(player, info.egg.name .. " : il manque de l'argent ("
+			.. Config.abbreviate(cost) .. " $)")
+		return
+	end
+	d.money -= cost
+
+	local key = Config.rollPet(rng, info.egg)
+	local pet = Config.pet(key)
+	d.pets = d.pets or {}
+	d.pets[key] = (tonumber(d.pets[key]) or 0) + 1
+
+	-- Premier pet obtenu : on l'équipe tout seul. Sans ça, le joueur ouvre son
+	-- premier œuf, ne voit rien changer et croit que le pet ne sert à rien.
+	local autoEquip = false
+	if (d.petEquipped or "") == "" then
+		d.petEquipped = key
+		autoEquip = true
+	end
+
+	updateLeaderstats(session, player)
+	pushStats(player)
+	rPetResult:FireClient(player, {
+		key = key,
+		name = pet and pet.name or key,
+		mult = pet and pet.mult or 1,
+		egg = info.egg.name,
+		cost = cost,
+		equipped = autoEquip,
+	})
+	return true
+end
+
+rEgg.OnServerEvent:Connect(function(player, eggKey)
+	hatchEgg(player, eggKey)
+end)
+
+-------------------------------------------------------------------------------
+-- LE PET QUI SUIT LE JOUEUR.
+--
+-- Un seul modèle par joueur, ancré, repositionné par une boucle unique : un
+-- BodyPosition ou une contrainte physique par pet coûterait bien plus cher pour
+-- un objet qui ne fait que flotter.
+-------------------------------------------------------------------------------
+local function destroyPetModel(session: Session)
+	if session.petModel then
+		session.petModel:Destroy()
+		session.petModel = nil
+	end
+end
+
+local function buildPetModel(session: Session, player: Player)
+	destroyPetModel(session)
+	local key = session.data.petEquipped
+	if not key or key == "" then return end
+	local pet = Config.pet(key)
+	if not pet then return end
+
+	local model = Instance.new("Model")
+	model.Name = "Pet_" .. player.Name
+
+	local body = Instance.new("Part")
+	body.Name = "Corps"
+	body.Shape = Enum.PartType.Ball
+	body.Size = Vector3.new(2.6, 2.6, 2.6)
+	body.Color = pet.color
+	body.Material = Enum.Material.Neon
+	body.Anchored = true
+	body.CanCollide = false
+	body.CastShadow = false
+	body.Parent = model
+	model.PrimaryPart = body
+
+	for _, side in { -1, 1 } do
+		local eye = Instance.new("Part")
+		eye.Name = "Oeil"
+		eye.Shape = Enum.PartType.Ball
+		eye.Size = Vector3.new(0.6, 0.6, 0.6)
+		eye.Color = Color3.fromRGB(20, 20, 28)
+		eye.Material = Enum.Material.SmoothPlastic
+		eye.Anchored = true
+		eye.CanCollide = false
+		eye.CastShadow = false
+		eye.CFrame = body.CFrame * CFrame.new(side * 0.6, 0.4, -1.1)
+		eye.Parent = model
+	end
+
+	local tag = Instance.new("BillboardGui")
+	tag.Name = "Nom"
+	tag.Size = UDim2.fromOffset(150, 34)
+	tag.StudsOffset = Vector3.new(0, 2.2, 0)
+	tag.MaxDistance = 90
+	tag.Parent = body
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Text = string.format("%s  x%s", pet.name, Config.abbreviate(pet.mult))
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 13
+	label.TextColor3 = pet.color
+	label.TextStrokeTransparency = 0.3
+	label.Parent = tag
+
+	model.Parent = workspace
+	session.petModel = model
+end
+
+task.spawn(function()
+	local t = 0
+	while true do
+		t += 1 / 20
+		for player, session in sessions do
+			local model = session.petModel
+			if model and model.PrimaryPart then
+				local char = player.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if hrp then
+					-- Derrière l'épaule gauche, avec un petit flottement.
+					local target = hrp.CFrame * CFrame.new(-3.2, 1.4 + math.sin(t * 3) * 0.35, 2.4)
+					model:PivotTo(model:GetPivot():Lerp(CFrame.new(target.Position), 0.35))
+				end
+			end
+		end
+		task.wait(1 / 20)
+	end
+end)
+
+rPet.OnServerEvent:Connect(function(player, payload)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+	if not allow(player, "pet", 0.25) then return end
+	local d = session.data
+	d.pets = d.pets or {}
+
+	if payload.kind == "equip" then
+		local key = payload.key
+		if typeof(key) ~= "string" then return end
+		-- On équipe ce qu'on possède, et rien d'autre : le client envoie une clé,
+		-- le serveur vérifie qu'elle est bien dans le sac.
+		if (tonumber(d.pets[key]) or 0) < 1 then
+			rToast:FireClient(player, "Tu ne possèdes pas ce pet.")
+			return
+		end
+		d.petEquipped = key
+	elseif payload.kind == "best" then
+		local best = Config.bestOwnedPet(d.pets)
+		if not best then
+			rToast:FireClient(player, "Aucun pet — ouvre un œuf sur la plateforme 🥚")
+			return
+		end
+		d.petEquipped = best
+	elseif payload.kind == "none" then
+		d.petEquipped = ""
+	else
+		return
+	end
+
+	buildPetModel(session, player)
+	pushStats(player)
+	local pet = Config.pet(d.petEquipped)
+	rToast:FireClient(player, if pet
+		then "🐾 " .. pet.name .. " équipé — argent x" .. Config.abbreviate(pet.mult)
+		else "🐾 Pet rangé.")
+end)
+
+-------------------------------------------------------------------------------
+-- MONDES : acheter le suivant, ou se téléporter dans un monde déjà débloqué.
+--
+-- Le multiplicateur suit le monde OÙ L'ON EST (voir moneyMultiplier) : la
+-- téléportation n'est donc pas qu'un décor, c'est un choix.
+-------------------------------------------------------------------------------
+local function rebuildWorld(session: Session, player: Player)
+	local d = session.data
+	if session.field and session.field.root then
+		session.field.root:Destroy()
+	end
+	local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
+		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.worldAt or d.world)
+	session.repopulatePending = false
+	repopulate(session)
+	buildEggPlatformFor(session, player)
+end
+
+rWorld.OnServerEvent:Connect(function(player, payload)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+	if not allow(player, "world", 0.5) then return end
+	local d = session.data
+
+	if payload.kind == "buy" then
+		local nw = Config.nextWorld(d.world)
+		if not nw then
+			rToast:FireClient(player, "Tu as déjà débloqué tous les mondes.")
+			return
+		end
+		if d.money < nw.cost then
+			rToast:FireClient(player, "Monde " .. nw.name .. " : il faut "
+				.. Config.abbreviate(nw.cost) .. " $")
+			return
+		end
+		d.money -= nw.cost
+		d.world = (d.world or 1) + 1
+		d.worldAt = d.world   -- on arrive tout de suite dans le monde qu'on achète
+		rebuildWorld(session, player)
+		updateLeaderstats(session, player)
+		pushStats(player)
+		rToast:FireClient(player, "🌍 Monde " .. nw.name .. " débloqué — argent x"
+			.. nw.moneyMult .. " tant que tu y joues !")
+
+	elseif payload.kind == "go" then
+		local index = tonumber(payload.index)
+		if not index or index ~= index then return end
+		index = math.floor(index)
+		if index < 1 or index > #Config.Worlds then return end
+		if index > (d.world or 1) then
+			rToast:FireClient(player, "Monde " .. Config.world(index).name .. " pas encore débloqué.")
+			return
+		end
+		if index == (d.worldAt or d.world) then return end
+		d.worldAt = index
+		rebuildWorld(session, player)
+
+		-- Téléportation : on repose le joueur sur son parvis, sinon il reste
+		-- planté au milieu d'un terrain qui vient d'être reconstruit sous lui.
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hrp and session.spawnPos then
+			hrp.CFrame = CFrame.new(session.spawnPos)
+		end
+
+		pushStats(player)
+		local w = Config.world(index)
+		rToast:FireClient(player, "🚀 Téléporté au monde " .. w.name .. " — argent x" .. w.moneyMult)
+	end
+end)
+
+-------------------------------------------------------------------------------
 -- RENAISSANCE : reset argent + upgrades, +1 renaissance (mult permanent).
 -------------------------------------------------------------------------------
 rRebirth.OnServerEvent:Connect(function(player)
@@ -1239,7 +1543,7 @@ rRebirth.OnServerEvent:Connect(function(player)
 	-- renaissance : la chance sert la collection, qui survit elle aussi, et un
 	-- monde a été payé une fois pour toutes.
 	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
-		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.world)
+		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.worldAt or d.world)
 
 	repopulate(session)
 	if challengeActive then FieldBuilder.setChallengeMode(session.field, true) end
@@ -1289,7 +1593,8 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passI
 		if session.field.root then session.field.root:Destroy() end
 		local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
 		session.field = FieldBuilder.build(true, origin,
-			Config.fieldSizeMultiplier(session.data.rebirths), extraSlotsFor(session), session.data.world)
+			Config.fieldSizeMultiplier(session.data.rebirths), extraSlotsFor(session),
+			session.data.worldAt or session.data.world)
 		session.repopulatePending = false
 	end
 	repopulate(session)
@@ -1406,6 +1711,9 @@ local function onPlayerAdded(player: Player)
 		props = nil,
 		board = nil,
 		challengeBest = 0,
+		eggPlatform = nil,
+		petModel = nil,
+		lastEgg = 0,
 		sessionStart = os.clock(),
 		sessionEarned = 0,
 	}
@@ -1413,8 +1721,12 @@ local function onPlayerAdded(player: Player)
 
 	refreshPasses(session, player)
 
+	-- Sauvegardes d'avant la teleportation : on se trouve dans le monde le plus
+	-- haut debloque, ce qui etait le comportement d'alors.
+	data.worldAt = math.clamp(math.floor(tonumber(data.worldAt) or data.world or 1), 1, data.world or 1)
+
 	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
-		Config.fieldSizeMultiplier(data.rebirths), extraFromRebirths, data.world)
+		Config.fieldSizeMultiplier(data.rebirths), extraFromRebirths, data.worldAt)
 	local training = FieldBuilder.buildTrainingArea(origin)
 	local entrance = FieldBuilder.buildEntrance(origin)
 	session.spawnPos = entrance.spawnPos
@@ -1428,6 +1740,9 @@ local function onPlayerAdded(player: Player)
 		table.insert(boards, entrance.board)
 		task.spawn(Leaderboard.refresh)
 	end
+
+	buildEggPlatformFor(session, player)
+	buildPetModel(session, player)
 
 	repopulate(session)
 	updateLeaderstats(session, player)
@@ -1484,6 +1799,9 @@ local function onPlayerRemoving(player: Player)
 	if session.field and session.field.root then
 		session.field.root:Destroy()
 	end
+
+	destroyEggPlatform(session)
+	destroyPetModel(session)
 
 	-- Décor du plot : sans ça, chaque passage laissait un stade fantôme (entrée,
 	-- arbres, gym) dans le monde.
