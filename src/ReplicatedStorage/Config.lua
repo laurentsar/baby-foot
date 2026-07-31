@@ -908,7 +908,10 @@ Config.Gift = {
 -- contrôle est fait SUR LE SERVEUR à chaque commande : un client modifié qui
 -- s'affiche le panneau ne peut rien en tirer.
 -------------------------------------------------------------------------------
-Config.Admins = {} :: { number }
+-- 5393457901 : l'UserId vu dans le log de ton test en Studio (clé p_5393457901).
+-- Vérifie qu'il correspond bien au nombre dans l'URL de ton profil Roblox — un
+-- id erroné donnerait le panneau admin à un inconnu.
+Config.Admins = { 5393457901 } :: { number }
 
 function Config.isAdmin(userId: number): boolean
 	for _, id in Config.Admins do
