@@ -117,6 +117,28 @@ local MIN_INTERVAL = 20
 local lastSaveAt: { [number]: number } = {}
 local lastPayload: { [number]: string } = {}
 
+-- CHAMPS VOLATILS, exclus de la comparaison.
+--
+-- `lastSeen` et `earnPerSec` sont réécrits avant CHAQUE sauvegarde (ils servent
+-- aux gains hors ligne). Résultat : la charge utile changeait à tous les coups,
+-- le garde-fou « contenu identique » ne se déclenchait jamais, et l'arrêt du
+-- serveur écrivait deux fois la même partie à une seconde d'intervalle — d'où
+-- le message « DataStore request was added to queue ».
+--
+-- Les exclure ne perd rien : si RIEN d'autre n'a bougé, le joueur n'a rien
+-- gagné, donc son rythme est nul et son gain hors ligne le sera aussi.
+local VOLATILES = { lastSeen = true, earnPerSec = true }
+
+local function empreinte(data): string
+	local stable = {}
+	for k, v in data do
+		if not VOLATILES[k] then
+			stable[k] = v
+		end
+	end
+	return HttpService:JSONEncode(stable)
+end
+
 -- Joueurs dont les donnees ont ete effacees a leur demande (droit a l'oubli).
 -- Tant que la session en cours n'est pas terminee, toute ecriture est refusee :
 -- sinon la sauvegarde de sortie recreerait immediatement le profil efface.
@@ -127,7 +149,7 @@ function DataModule.save(userId: number, data, force: boolean?)
 	if erased[userId] then return end
 	-- Profil jamais lu correctement : on n'ecrit pas, on ne detruit rien.
 	if not loadedOk[userId] then return end
-	local payload = HttpService:JSONEncode(data)
+	local payload = empreinte(data)
 	if lastPayload[userId] == payload then return end
 	local now = os.clock()
 	if not force and (now - (lastSaveAt[userId] or -math.huge)) < MIN_INTERVAL then
@@ -159,9 +181,11 @@ function DataModule.erase(userId: number): boolean
 	return false
 end
 
+-- On garde volontairement `lastSaveAt` et `lastPayload` : ce sont eux qui
+-- empêchent une deuxième écriture de la même partie juste après le départ du
+-- joueur (PlayerRemoving puis BindToClose écrivent tous les deux, en force).
+-- Ils ne coûtent qu'une chaîne par joueur et disparaissent avec le serveur.
 function DataModule.forget(userId: number)
-	lastSaveAt[userId] = nil
-	lastPayload[userId] = nil
 	loadedOk[userId] = nil
 	erased[userId] = nil
 end
