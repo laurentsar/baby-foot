@@ -19,15 +19,14 @@ Config.SaveKey = "BabyFootPower_v1"  -- change la clé => reset des sauvegardes
 -- pour corriger une faute de frappe ne doit pas relancer une annonce.
 -------------------------------------------------------------------------------
 Config.Release = {
-	version = "1.2.0",
-	title = "🐾 Mise à jour 1.2 — Pets, Œufs & Téléportation",
+	version = "1.3.0",
+	title = "🐾 Mise à jour 1.3 — Équipe, Pets multiples & Spectateur",
 	notes = {
-		"🥚 ŒUFS & PETS : une plateforme juste à côté du point d'apparition, 3 œufs par monde (9 en tout), 36 pets à collectionner. Chaque pet multiplie l'argent — de ×1,1 à ×6000, et l'œuf éclot sous tes yeux.",
-		"🐾 SAC À DOS : tes pets s'y rangent, un seul s'équipe à la fois et te suit en jeu. Bouton ⭐ ÉQUIPER LE MEILLEUR pour ne jamais se tromper.",
-		"🚀 TÉLÉPORTATION : va dans n'importe quel monde déjà débloqué depuis la boutique. Attention, c'est le monde OÙ TU ES qui donne son multiplicateur.",
-		"🌍 MONDES BEAUCOUP PLUS CHERS : Galactique 1 Sx, Radioactif 1 Oc — ce sont des paliers de fin de partie, plus des cases à cocher.",
-		"🎁 DONS : trois boutons 10 % / 25 % / MAX pour offrir sans ouvrir le clavier du téléphone (c'est lui qui faisait quitter la partie).",
-		"🗑 La suppression de données passe maintenant par une fenêtre de confirmation en deux temps : plus moyen de se faire éjecter par erreur.",
+		"👥 COMPOSITION D'ÉQUIPE : dans COLLECTION → ✏️ COMPOSER, choisis QUI joue à QUEL poste (gardien, défense, milieu, attaque). Les emplacements laissés libres se remplissent tout seuls avec tes meilleures cartes.",
+		"🐾 PLUSIEURS PETS À LA FOIS : 2 places au départ, +1 toutes les 2 renaissances jusqu'à 6. Leurs bonus s'ADDITIONNENT (deux ×3 font ×5, pas ×9).",
+		"📕 INDEX DES PETS : les 36 pets du jeu, groupés par monde et par œuf, avec ceux qui te manquent — tu sais enfin quel œuf ouvrir.",
+		"👁 MODE SPECTATEUR : va regarder le terrain d'un autre joueur, et reviens chez toi d'un appui sur le bandeau.",
+		"💤 MODE AFK : la puissance monte toute seule pendant que tu fais autre chose, à 55 % du rythme de l'entraînement à la main.",
 	},
 }
 
@@ -35,17 +34,13 @@ Config.Release = {
 -- précédente ici pour retrouver ce qui a été annoncé quand (et pour recopier la
 -- forme des notes à la prochaine mise à jour).
 Config.PreviousRelease = {
-	version = "1.1.0",
-	title = "🎉 Mise à jour 1.1 — Chance, Mondes & Défis",
+	version = "1.2.0",
+	title = "🐾 Mise à jour 1.2 — Pets, Œufs & Téléportation",
 	notes = {
-		"🍀 CHANCE : nouvelle amélioration en boutique, jusqu'à x5 de chance de recruter mieux qu'un Commun. Passe Robux « Chance x20 » pour les pressés.",
-		"🌍 MONDES : Galactique (1 Qa) donne x2 argent pour toujours, Radioactif (1 Sx) x4. Le terrain change de décor et rien n'est perdu à la renaissance.",
-		"🏹 DÉFI DU LOIN : toutes les 10 min, le terrain se vide — un seul but, tirer le plus loin. Les 3 premiers gagnent des potions.",
-		"🎒 SAC À DOS : range tes potions (x2 puissance 5 ou 10 min, x3 argent 30 min) et bois-les quand tu veux.",
-		"💤 HORS LIGNE : ton équipe continue de jouer quand tu quittes, tu récupères une partie des gains au retour.",
-		"📚 TUTORIEL : 8 écrans pour comprendre le jeu, rejouables par le bouton ❓.",
-		"🏟️ DÉCOR : pelouse tondue en bandes, marquages au sol, filet de but, toitures de tribunes, éclairage et ciel retravaillés.",
-		"🐛 CORRECTIONS : les tirs très puissants ne traversent plus les figurines sans les toucher, « Grand Terrain » s'applique dès l'achat, et plus de trous dans le sol des plots.",
+		"🥚 ŒUFS & PETS : une plateforme juste à côté du point d'apparition, 3 œufs par monde (9 en tout), 36 pets à collectionner.",
+		"🚀 TÉLÉPORTATION : va dans n'importe quel monde déjà débloqué. C'est le monde OÙ TU ES qui donne son multiplicateur.",
+		"🌍 MONDES BEAUCOUP PLUS CHERS : Galactique 1 Sx, Radioactif 1 Oc.",
+		"🎁 DONS : boutons 10 % / 25 % / MAX, sans ouvrir le clavier du téléphone.",
 	},
 }
 
@@ -511,6 +506,120 @@ function Config.bestOwnedPet(owned: { [string]: number }?): string?
 		end
 	end
 	return bestKey
+end
+
+-------------------------------------------------------------------------------
+-- ÉQUIPER PLUSIEURS PETS.
+--
+-- Les multiplicateurs des pets équipés s'ADDITIONNENT (1 + somme des bonus) et
+-- ne se multiplient pas : trois pets à x6000 donneraient sinon x2 x 10^11, un
+-- nombre qui écrase tout le reste du jeu en une fois. Additionnés, trois pets
+-- valent trois fois un pet — c'est déjà beaucoup, et ça reste lisible.
+--
+-- Le nombre de places monte avec les renaissances : c'est une raison de plus de
+-- renaître, et ça évite d'avoir tout de suite six pets sur le dos.
+-------------------------------------------------------------------------------
+Config.PetSlots = {
+	base = 2,
+	perRebirth = 1,   -- une place de plus toutes les `rebirthsPer` renaissances
+	rebirthsPer = 2,
+	max = 6,
+}
+
+function Config.petSlots(rebirths: number?): number
+	local r = math.max(0, math.floor(rebirths or 0))
+	local extra = math.floor(r / Config.PetSlots.rebirthsPer) * Config.PetSlots.perRebirth
+	return math.clamp(Config.PetSlots.base + extra, Config.PetSlots.base, Config.PetSlots.max)
+end
+
+-- Multiplicateur total d'une liste de pets équipés.
+function Config.petsMultiplier(keys: { string }?): number
+	if not keys then return 1 end
+	local bonus = 0
+	for _, key in keys do
+		local pet = Config.pet(key)
+		if pet then bonus += pet.mult - 1 end
+	end
+	return 1 + bonus
+end
+
+-- Catalogue des pets pour l'index : tous les pets du jeu, dans l'ordre monde →
+-- œuf → multiplicateur. Construit une fois, comme le catalogue des joueurs.
+local PET_CATALOGUE: { any } = {}
+for worldIndex, eggs in Config.Eggs do
+	for _, egg in eggs do
+		for _, pet in egg.pets do
+			table.insert(PET_CATALOGUE, {
+				key = pet.key, name = pet.name, mult = pet.mult, color = pet.color,
+				egg = egg.name, eggKey = egg.key, world = worldIndex,
+				worldName = Config.Worlds[worldIndex] and Config.Worlds[worldIndex].name or "?",
+			})
+		end
+	end
+end
+
+function Config.petCatalogue()
+	return PET_CATALOGUE
+end
+
+function Config.petCatalogueSize(): number
+	return #PET_CATALOGUE
+end
+
+-------------------------------------------------------------------------------
+-- ORDRE DES EMPLACEMENTS DU TERRAIN.
+--
+-- Partagé client/serveur : le serveur y place les figurines, le client s'en sert
+-- pour l'écran de composition d'équipe. Les deux DOIVENT lire la même liste,
+-- sinon « poser le Mythique au gardien » ne poserait pas le Mythique au gardien.
+--
+-- L'ordre est un tour de table du gardien vers l'attaque : les premiers
+-- emplacements couvrent donc les quatre lignes plutôt que d'entasser l'attaque.
+-------------------------------------------------------------------------------
+-- `basesOverride` : liste de bases déjà calculée (le serveur la garde dans le
+-- terrain). Sans elle, on la recalcule depuis le nombre d'emplacements bonus.
+function Config.slotOrder(extra: number?, basesOverride: any?)
+	local bases = basesOverride or Config.basesWithExtra(extra)
+	local perBase = {}
+	local total = 0
+	for b, base in bases do
+		perBase[b] = base.slots
+		total += base.slots
+	end
+
+	local order = { 4, 3, 2, 1 }   -- Gardien, Défense, Milieu, Attaque
+	local cursor = { 0, 0, 0, 0 }
+	local slots = {}
+	while #slots < total do
+		local placedOne = false
+		for _, b in order do
+			if perBase[b] and cursor[b] < perBase[b] then
+				cursor[b] += 1
+				table.insert(slots, { baseIndex = b, base = bases[b].name, indexInBase = cursor[b] })
+				placedOne = true
+				if #slots >= total then break end
+			end
+		end
+		if not placedOne then break end
+	end
+	return slots
+end
+
+-------------------------------------------------------------------------------
+-- MODE AFK : la puissance monte toute seule, mais moins vite qu'à la main.
+--
+-- `rate` = part du rythme manuel. À 1, personne ne toucherait plus au bouton
+-- d'entraînement ; trop bas, le mode ne sert à rien. Un peu plus de la moitié
+-- laisse l'entraînement actif meilleur tout en rendant l'absence utile.
+-------------------------------------------------------------------------------
+Config.Afk = {
+	rate = 0.55,
+	interval = 1,   -- fréquence des gains automatiques (s)
+}
+
+-- Puissance gagnée par seconde en AFK, pour un haltère donné.
+function Config.afkPowerPerSecond(powerGain: number): number
+	return powerGain * (1 / Config.Train.repCooldown) * Config.Afk.rate
 end
 
 -------------------------------------------------------------------------------

@@ -41,6 +41,9 @@ local rWorld = Remotes.get("World")
 local rPet = Remotes.get("Pet")
 local rEgg = Remotes.get("Egg")
 local rPetResult = Remotes.get("PetResult")
+local rLineup = Remotes.get("Lineup")
+local rSpectate = Remotes.get("Spectate")
+local rAfk = Remotes.get("Afk")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -278,6 +281,17 @@ local trainBtn = button("🏋️ S'ENTRAÎNER", GOLD, bottom)
 trainBtn.Size = UDim2.fromOffset(200, 90)
 trainBtn.Position = UDim2.new(0, 24, 0, 40)
 trainBtn.TextSize = 28
+
+-- MODE AFK : la puissance monte toute seule, un peu moins vite qu'à la main.
+-- Sous le bouton d'entraînement, parce que c'est le même geste qu'on remplace.
+local afkBtn = button("💤 AFK : OFF", Color3.fromRGB(120, 130, 150), bottom)
+afkBtn.Size = UDim2.fromOffset(200, 32)
+afkBtn.Position = UDim2.new(0, 24, 0, 4)
+afkBtn.TextSize = 14
+local afkOn = false
+afkBtn.MouseButton1Click:Connect(function()
+	rAfk:FireServer(not afkOn)
+end)
 
 -- VISÉE = ORIENTATION DE LA CAMÉRA. Plus de slider : on tire là où on regarde.
 -- L'axe du terrain est +Z, donc angle = atan2(look.X, look.Z), borné comme côté
@@ -773,17 +787,122 @@ local function collecLine(text: string, color: Color3, order: number, height: nu
 	}, collecScroll)
 end
 
-rCollection.OnClientEvent:Connect(function(c)
+-- COMPOSITION D'ÉQUIPE.
+--
+-- Le panneau COLLECTION a deux modes : la liste (ce qu'on a) et la composition
+-- (où on le met). Deux modes dans un panneau plutôt qu'un sixième bouton dans la
+-- rangée, qui aurait rendu tous les libellés illisibles.
+--
+-- L'ordre des emplacements vient de Config.slotOrder, EXACTEMENT la même liste
+-- que celle dont le serveur se sert pour poser les figurines : « mettre le
+-- Mythique au gardien » met bien le Mythique au gardien.
+local composeMode = false
+local pickingSlot: number? = nil
+local lastCollection: any = nil
+
+local function refreshCollection()
+	local c = lastCollection
+	if not c then return end
 	collecScroll:ClearAllChildren()
 	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, collecScroll)
 
 	local order = 1
+
+	local modeBtn = button(if composeMode then "◀ RETOUR À LA COLLECTION" else "✏️ COMPOSER L'ÉQUIPE",
+		if composeMode then Color3.fromRGB(120, 130, 160) else Color3.fromRGB(120, 200, 140), collecScroll)
+	modeBtn.Size = UDim2.new(1, 0, 0, 30)
+	modeBtn.TextSize = 14
+	modeBtn.LayoutOrder = order
+	modeBtn.MouseButton1Click:Connect(function()
+		composeMode = not composeMode
+		pickingSlot = nil
+		refreshCollection()
+	end)
+	order += 1
+
+	if composeMode then
+		local slots = Config.slotOrder(c.extraSlots or 0)
+
+		if pickingSlot then
+			local entry = slots[pickingSlot]
+			collecLine(string.format("QUI JOUE À L'EMPLACEMENT %d (%s) ?", pickingSlot,
+				entry and entry.base or "?"), GOLD, order, 24)
+			order += 1
+
+			local libre = button("— Laisser le placement automatique —", Color3.fromRGB(90, 94, 112), collecScroll)
+			libre.Size = UDim2.new(1, 0, 0, 28)
+			libre.TextSize = 13
+			libre.TextColor3 = Color3.fromRGB(235, 235, 245)
+			libre.LayoutOrder = order
+			libre.MouseButton1Click:Connect(function()
+				rLineup:FireServer({ slot = pickingSlot })
+				pickingSlot = nil
+			end)
+			order += 1
+
+			-- Les meilleures cartes d'abord : c'est celles qu'on veut poser.
+			local cards = table.clone(c.cards or {})
+			table.sort(cards, function(a, b)
+				local ma, mb = Config.rarity(a.rarity).mult, Config.rarity(b.rarity).mult
+				if ma == mb then return (a.name or "") < (b.name or "") end
+				return ma > mb
+			end)
+			for _, card in cards do
+				local r = Config.rarity(card.rarity)
+				local b = button(string.format("%s — %s ×%s", card.name, r.name, Config.abbreviate(r.mult)),
+					Color3.fromRGB(70, 74, 92), collecScroll)
+				b.Size = UDim2.new(1, 0, 0, 28)
+				b.TextSize = 13
+				b.TextColor3 = r.color
+				b.LayoutOrder = order
+				b.MouseButton1Click:Connect(function()
+					rLineup:FireServer({ slot = pickingSlot, cardId = card.id })
+					pickingSlot = nil
+				end)
+				order += 1
+			end
+			return
+		end
+
+		collecLine(string.format("COMPOSITION (%d emplacements)", #slots), GOLD, order, 24)
+		order += 1
+
+		local auto = button("🔁 TOUT REMETTRE EN AUTOMATIQUE", Color3.fromRGB(200, 160, 90), collecScroll)
+		auto.Size = UDim2.new(1, 0, 0, 28)
+		auto.TextSize = 13
+		auto.LayoutOrder = order
+		auto.MouseButton1Click:Connect(function() rLineup:FireServer({ kind = "auto" }) end)
+		order += 1
+
+		local lineup = c.lineup or {}
+		for i, entry in slots do
+			local card = (c.squad or {})[i]
+			local fixed = lineup[tostring(i)] ~= nil
+			local r = card and Config.rarity(card.rarity) or nil
+			local text = string.format("%d. %s — %s%s", i, entry.base,
+				card and card.name or "vide", if fixed then "  📌" else "")
+			local b = button(text, if fixed then Color3.fromRGB(90, 120, 160) else Color3.fromRGB(60, 64, 80),
+				collecScroll)
+			b.Size = UDim2.new(1, 0, 0, 28)
+			b.TextSize = 13
+			b.TextColor3 = r and r.color or Color3.fromRGB(200, 200, 215)
+			b.LayoutOrder = order
+			b.MouseButton1Click:Connect(function()
+				pickingSlot = i
+				refreshCollection()
+			end)
+			order += 1
+		end
+		return
+	end
+
 	collecLine(string.format("SUR LE TERRAIN (%d/%d)", #c.squad, c.maxSlots), GOLD, order, 24)
 	order += 1
 	for i, card in c.squad do
 		local r = Config.rarity(card.rarity)
-		collecLine(string.format("%d. %s — %s ×%s", i, card.name, r.name, Config.abbreviate(r.mult)),
-			r.color, order, 20)
+		local fixed = (c.lineup or {})[tostring(i)] ~= nil
+		collecLine(string.format("%d. %s — %s ×%s%s", i, card.name, r.name, Config.abbreviate(r.mult),
+			if fixed then "  📌" else ""), r.color, order, 20)
 		order += 1
 	end
 	if #c.squad == 0 then
@@ -807,7 +926,19 @@ rCollection.OnClientEvent:Connect(function(c)
 		collecLine(string.format("Emplacements débloqués : %d/%d (boutique)",
 			c.unlockedSlots, c.maxSlots), Color3.fromRGB(200, 200, 215), order, 20)
 	end
+end
+
+rCollection.OnClientEvent:Connect(function(c)
+	lastCollection = c
+	-- Un panneau fermé n'a pas besoin d'être redessiné : la collection est
+	-- republiée à chaque dé, chaque don et chaque changement d'équipe.
+	if collecPanel.Visible then refreshCollection() end
 end)
+
+-- Deuxième abonnement au même bouton : le premier ouvre/ferme le panneau,
+-- celui-ci le redessine. Redessiner à l'ouverture est indispensable — le
+-- panneau n'est pas mis à jour tant qu'il est fermé.
+collecToggle.MouseButton1Click:Connect(refreshCollection)
 
 -------------------------------------------------------------------------------
 -- INDEX / DONS / ADMIN : deuxième rangée de boutons, sous COLLECTION.
@@ -820,12 +951,15 @@ local function rowButton(text: string, color: Color3, x: number, w: number): Tex
 	return b
 end
 
--- Quatre boutons sur la rangée depuis l'ajout du sac à dos : ils tiennent dans
--- la même largeur que les panneaux (320) pour ne pas déborder sur les stats.
-local indexToggle = rowButton("📕 INDEX", Color3.fromRGB(90, 180, 235), 16, 74)
-local giftToggle = rowButton("🎁 DONS", Color3.fromRGB(235, 130, 170), 96, 74)
-local bagToggle = rowButton("🎒 SAC", Color3.fromRGB(120, 210, 180), 176, 74)
-local adminToggle = rowButton("🛠 ADMIN", Color3.fromRGB(200, 200, 210), 256, 74)
+-- Cinq boutons sur la rangée : ils tiennent dans la même largeur que les
+-- panneaux (320) pour ne pas déborder sur les stats. Au-delà, les libellés
+-- deviennent illisibles — c'est pourquoi la composition d'équipe vit dans le
+-- panneau COLLECTION plutôt que d'ajouter un sixième bouton.
+local indexToggle = rowButton("📕", Color3.fromRGB(90, 180, 235), 16, 58)
+local giftToggle = rowButton("🎁", Color3.fromRGB(235, 130, 170), 80, 58)
+local bagToggle = rowButton("🎒", Color3.fromRGB(120, 210, 180), 144, 58)
+local spectateToggle = rowButton("👁", Color3.fromRGB(150, 170, 220), 208, 58)
+local adminToggle = rowButton("🛠", Color3.fromRGB(200, 200, 210), 272, 58)
 adminToggle.Visible = false   -- réaffiché seulement pour un UserId de Config.Admins
 
 -------------------------------------------------------------------------------
@@ -840,6 +974,12 @@ local indexScroll = panelScroll(indexPanel)
 local indexRows: { [string]: TextLabel } = {}
 local indexHeader: TextLabel? = nil
 local lastIndex: { [string]: string } = {}
+-- Déclarés ici et pas dans la section SAC : l'index des pets, plus haut dans le
+-- fichier, en a besoin lui aussi.
+local lastPets: { [string]: number } = {}
+local petsEquipped: { string } = {}
+local petSlots = 1
+local petMult = 1
 
 local function buildIndexRows()
 	if indexHeader then return end
@@ -882,14 +1022,97 @@ local function refreshIndex()
 		owned, total, math.floor(owned / total * 100))
 end
 
+-------------------------------------------------------------------------------
+-- INDEX DES PETS : le même panneau, deuxième mode.
+--
+-- Les 36 pets du jeu, groupés par monde et par œuf. Ceux qu'on n'a jamais
+-- obtenus restent masqués : c'est ce qui donne envie d'ouvrir l'œuf suivant, et
+-- ça dit surtout OÙ chercher (quel œuf, dans quel monde).
+-------------------------------------------------------------------------------
+local indexMode = "joueurs"   -- "joueurs" | "pets"
+local petIndexScroll = panelScroll(indexPanel)
+petIndexScroll.Visible = false
+
+local function refreshPetIndex()
+	petIndexScroll:ClearAllChildren()
+	make("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, petIndexScroll)
+
+	local catalogue = Config.petCatalogue()
+	local owned = 0
+	for _, entry in catalogue do
+		if (lastPets[entry.key] or 0) > 0 then owned += 1 end
+	end
+
+	local order = 1
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+		Text = string.format("INDEX PETS — %d/%d (%d%%)", owned, #catalogue,
+			math.floor(owned / math.max(1, #catalogue) * 100)),
+		Font = Enum.Font.GothamBlack, TextScaled = true, TextColor3 = GOLD,
+		TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order,
+	}, petIndexScroll)
+	order += 1
+
+	local currentEgg = nil
+	for _, entry in catalogue do
+		if entry.eggKey ~= currentEgg then
+			currentEgg = entry.eggKey
+			make("TextLabel", {
+				Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1,
+				Text = string.format("%s · %s", entry.worldName, entry.egg),
+				Font = Enum.Font.GothamBold, TextSize = 13,
+				TextColor3 = Color3.fromRGB(150, 170, 210),
+				TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order,
+			}, petIndexScroll)
+			order += 1
+		end
+
+		local count = lastPets[entry.key] or 0
+		local has = count > 0
+		make("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1,
+			Text = if has
+				then string.format("  %s  ×%s  (x%d)", entry.name, fmtMult(entry.mult), count)
+				else "  ???",
+			Font = Enum.Font.GothamBold, TextSize = 12,
+			TextColor3 = if has then entry.color else Color3.fromRGB(90, 92, 105),
+			TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order,
+		}, petIndexScroll)
+		order += 1
+	end
+end
+
+-- Bascule joueurs / pets, en tête du panneau INDEX.
+local indexModeBtn = button("🐾 VOIR L'INDEX DES PETS", Color3.fromRGB(120, 200, 170), indexPanel)
+indexModeBtn.Size = UDim2.fromOffset(PANEL_RECT.w - 16, 26)
+indexModeBtn.Position = UDim2.fromOffset(8, PANEL_RECT.h - 34)
+indexModeBtn.TextSize = 13
+indexModeBtn.ZIndex = 3
+
+local function applyIndexMode()
+	local pets = indexMode == "pets"
+	indexScroll.Visible = not pets
+	petIndexScroll.Visible = pets
+	-- On laisse la place au bouton de bascule, sinon il recouvre la dernière ligne.
+	indexScroll.Size = UDim2.new(1, -16, 1, -46)
+	petIndexScroll.Size = UDim2.new(1, -16, 1, -46)
+	indexModeBtn.Text = if pets then "📕 VOIR L'INDEX DES JOUEURS" else "🐾 VOIR L'INDEX DES PETS"
+	if pets then refreshPetIndex() else refreshIndex() end
+end
+
+indexModeBtn.MouseButton1Click:Connect(function()
+	indexMode = if indexMode == "pets" then "joueurs" else "pets"
+	applyIndexMode()
+end)
+
 indexToggle.MouseButton1Click:Connect(function()
 	-- 258 lignes : refermer puis rouvrir en repartant du haut donne l'impression
 	-- que l'index s'est remis a zero. On garde la position de defilement.
 	local keep = indexScroll.CanvasPosition
 	buildIndexRows()
-	refreshIndex()
+	applyIndexMode()
 	togglePanel(indexPanel)
-	if indexPanel.Visible then
+	if indexPanel.Visible and indexMode == "joueurs" then
 		indexScroll.CanvasPosition = keep
 	end
 end)
@@ -1059,9 +1282,6 @@ local bagPanel = sidePanel(Color3.fromRGB(120, 210, 180))
 local bagScroll = panelScroll(bagPanel)
 local lastPotions: { [string]: number } = {}
 local lastEffects: { [string]: any } = {}
-local lastPets: { [string]: number } = {}
-local petEquipped = ""
-local petMult = 1
 
 local function bagLine(text: string, color: Color3, order: number, height: number)
 	make("TextLabel", {
@@ -1118,8 +1338,11 @@ local function refreshBag()
 		order += 1
 	end
 
-	-- PETS : un seul est équipé à la fois, les autres attendent dans le sac.
-	bagLine("🐾 PETS", GOLD, order, 22); order += 1
+	-- PETS : plusieurs places d'équipement (Config.petSlots), le reste attend
+	-- dans le sac. Un pet déjà équipé se retire du même bouton.
+	bagLine(string.format("🐾 PETS — %d/%d équipés  (argent x%s)",
+		#petsEquipped, petSlots, fmtMult(petMult)), GOLD, order, 22)
+	order += 1
 
 	local ownedPets = {}
 	for key, count in lastPets do
@@ -1128,27 +1351,29 @@ local function refreshBag()
 			table.insert(ownedPets, { key = key, pet = pet, count = count })
 		end
 	end
-	-- Du meilleur au moins bon : le pet qu'on veut équiper est en haut.
 	table.sort(ownedPets, function(a, b)
 		if a.pet.mult == b.pet.mult then return a.pet.name < b.pet.name end
 		return a.pet.mult > b.pet.mult
 	end)
 
 	if #ownedPets == 0 then
-		bagLine("Aucun pet — va ouvrir un œuf sur la plateforme 🥚\n(ou depuis la boutique).",
+		bagLine("Aucun pet — va ouvrir un œuf au parvis 🥚\n(ou depuis la boutique).",
 			Color3.fromRGB(180, 180, 200), order, 34)
 		return
 	end
 
-	local bestBtn = button("⭐ ÉQUIPER LE MEILLEUR", Color3.fromRGB(120, 200, 140), bagScroll)
+	local equippedSet: { [string]: boolean } = {}
+	for _, key in petsEquipped do equippedSet[key] = true end
+
+	local bestBtn = button("⭐ ÉQUIPER LES MEILLEURS", Color3.fromRGB(120, 200, 140), bagScroll)
 	bestBtn.Size = UDim2.new(1, 0, 0, 32)
 	bestBtn.TextSize = 14
 	bestBtn.LayoutOrder = order
 	bestBtn.MouseButton1Click:Connect(function() rPet:FireServer({ kind = "best" }) end)
 	order += 1
 
-	if petEquipped ~= "" then
-		local unequip = button("Ranger le pet équipé", Color3.fromRGB(100, 104, 124), bagScroll)
+	if #petsEquipped > 0 then
+		local unequip = button("Tout ranger", Color3.fromRGB(100, 104, 124), bagScroll)
 		unequip.Size = UDim2.new(1, 0, 0, 28)
 		unequip.TextSize = 13
 		unequip.TextColor3 = Color3.fromRGB(235, 235, 245)
@@ -1158,7 +1383,7 @@ local function refreshBag()
 	end
 
 	for _, entry in ownedPets do
-		local isOn = entry.key == petEquipped
+		local isOn = equippedSet[entry.key] == true
 		local b = button(string.format("%s %s x%d — argent x%s", if isOn then "✅" else "🐾",
 			entry.pet.name, entry.count, fmtMult(entry.pet.mult)),
 			if isOn then Color3.fromRGB(120, 220, 150) else Color3.fromRGB(70, 74, 92), bagScroll)
@@ -1167,6 +1392,7 @@ local function refreshBag()
 		b.LayoutOrder = order
 		b.TextColor3 = if isOn then Color3.fromRGB(15, 15, 20) else entry.pet.color
 		b.MouseButton1Click:Connect(function()
+			-- Le serveur équipe ou retire selon l'état : un seul bouton par pet.
 			rPet:FireServer({ kind = "equip", key = entry.key })
 		end)
 		order += 1
@@ -1435,6 +1661,121 @@ releaseBtn.Size = UDim2.fromOffset(44, 32)
 releaseBtn.Position = UDim2.fromOffset(258, 16)
 releaseBtn.TextSize = 16
 releaseBtn.MouseButton1Click:Connect(openRelease)
+
+-------------------------------------------------------------------------------
+-- MODE SPECTATEUR.
+--
+-- Le serveur déplace vraiment le personnage jusqu'au parvis de la cible (avec
+-- StreamingEnabled, un plot à 600 studs n'est même pas chargé chez nous) ; ici
+-- on ne fait que braquer la caméra sur le joueur regardé.
+--
+-- La caméra est réappliquée en boucle tant qu'on regarde : le personnage de la
+-- cible peut n'arriver qu'une seconde plus tard, le temps que la zone se charge.
+-------------------------------------------------------------------------------
+local spectatePanel = sidePanel(Color3.fromRGB(150, 170, 220))
+local spectateScroll = panelScroll(spectatePanel)
+local spectating: number? = nil
+
+local function ownHumanoid(): Humanoid?
+	local char = player.Character
+	return char and char:FindFirstChildOfClass("Humanoid") or nil
+end
+
+local function applyCamera()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	if spectating then
+		local target = Players:GetPlayerByUserId(spectating)
+		local char = target and target.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then cam.CameraSubject = hum end
+	else
+		local hum = ownHumanoid()
+		if hum then cam.CameraSubject = hum end
+	end
+end
+
+local spectateBanner = make("TextButton", {
+	Size = UDim2.fromOffset(360, 40), Position = UDim2.new(0.5, -180, 0, 164),
+	BackgroundColor3 = Color3.fromRGB(40, 46, 70), BackgroundTransparency = 0.1,
+	Text = "", Font = Enum.Font.GothamBold, TextScaled = true,
+	TextColor3 = Color3.fromRGB(230, 235, 250), BorderSizePixel = 0,
+	Visible = false, ZIndex = 8,
+}, ui)
+corner(spectateBanner, 10)
+spectateBanner.MouseButton1Click:Connect(function()
+	rSpectate:FireServer({ kind = "stop" })
+end)
+
+local function refreshSpectate()
+	spectateScroll:ClearAllChildren()
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, spectateScroll)
+	local order = 1
+
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+		Text = "👁 REGARDER QUELQU'UN", Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order,
+	}, spectateScroll)
+	order += 1
+
+	if spectating then
+		local stop = button("◀ ARRÊTER DE REGARDER", Color3.fromRGB(220, 120, 120), spectateScroll)
+		stop.Size = UDim2.new(1, 0, 0, 32)
+		stop.TextSize = 14
+		stop.LayoutOrder = order
+		stop.MouseButton1Click:Connect(function() rSpectate:FireServer({ kind = "stop" }) end)
+		order += 1
+	end
+
+	local others = 0
+	for _, entry in roster do
+		if entry.userId ~= player.UserId then
+			others += 1
+			local watching = spectating == entry.userId
+			local b = button(if watching then "👁 " .. entry.name .. " (en cours)" else entry.name,
+				if watching then Color3.fromRGB(120, 200, 220) else Color3.fromRGB(70, 74, 92), spectateScroll)
+			b.Size = UDim2.new(1, 0, 0, 32)
+			b.TextSize = 14
+			b.TextColor3 = if watching then Color3.fromRGB(15, 15, 20) else Color3.fromRGB(235, 235, 245)
+			b.LayoutOrder = order
+			b.MouseButton1Click:Connect(function()
+				rSpectate:FireServer({ kind = "start", userId = entry.userId })
+			end)
+			order += 1
+		end
+	end
+	if others == 0 then
+		make("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1,
+			Text = "Personne d'autre sur le serveur pour l'instant.",
+			Font = Enum.Font.GothamBold, TextSize = 13, TextWrapped = true,
+			TextColor3 = Color3.fromRGB(180, 180, 200),
+			TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order,
+		}, spectateScroll)
+	end
+end
+
+spectateToggle.MouseButton1Click:Connect(function()
+	refreshSpectate()
+	togglePanel(spectatePanel)
+end)
+
+-- Deuxième abonnement au roster : le premier (section DONS) met `roster` à jour,
+-- celui-ci redessine la liste des joueurs à regarder. Il est ici et pas là-bas
+-- parce qu'une fonction ne voit pas un local déclaré après elle.
+rRoster.OnClientEvent:Connect(function()
+	if spectatePanel.Visible then refreshSpectate() end
+end)
+
+-- La caméra est réappliquée tant qu'on regarde : le personnage de la cible peut
+-- n'arriver qu'une seconde plus tard, le temps que sa zone se charge.
+task.spawn(function()
+	while true do
+		if spectating then applyCamera() end
+		task.wait(1)
+	end
+end)
 
 -------------------------------------------------------------------------------
 -- ADMIN : s'attribuer argent, puissance et cartes. Le bouton n'apparaît que
@@ -1799,8 +2140,10 @@ rStats.OnClientEvent:Connect(function(s)
 	-- PETS : contenu du sac et pet équipé (le panneau ne se redessine que s'il
 	-- est ouvert, cf. refreshBag).
 	lastPets = s.pets or {}
-	petEquipped = s.petEquipped or ""
+	petsEquipped = s.petsEquipped or {}
+	petSlots = s.petSlots or 1
 	petMult = s.petMult or 1
+	if indexPanel.Visible and indexMode == "pets" then refreshPetIndex() end
 
 	-- SAC À DOS : contenu et effets, rafraîchis seulement si le panneau est ouvert.
 	lastPotions = s.potions or {}
@@ -1832,6 +2175,30 @@ rStats.OnClientEvent:Connect(function(s)
 	autoBtn.BackgroundColor3 = if autoOn then Color3.fromRGB(90, 220, 140) else Color3.fromRGB(120, 130, 150)
 
 	adminToggle.Visible = s.isAdmin == true
+
+	-- AFK : l'état vient du serveur, jamais du clic local.
+	afkOn = s.afk == true
+	afkBtn.Text = if afkOn
+		then string.format("💤 AFK : ON  (+%s/s)", Config.abbreviate(s.afkPerSec or 0))
+		else "💤 AFK : OFF"
+	afkBtn.BackgroundColor3 = if afkOn then Color3.fromRGB(150, 140, 220) else Color3.fromRGB(120, 130, 150)
+
+	-- SPECTATEUR : bandeau permanent tant qu'on regarde quelqu'un, cliquable pour
+	-- revenir chez soi — c'est la sortie la plus visible possible.
+	local wasSpectating = spectating
+	spectating = s.spectating
+	if spectating then
+		local target = Players:GetPlayerByUserId(spectating)
+		spectateBanner.Text = "👁 Tu regardes " .. (target and target.DisplayName or "…")
+			.. "  •  APPUIE POUR REVENIR"
+		spectateBanner.Visible = true
+	else
+		spectateBanner.Visible = false
+	end
+	if wasSpectating ~= spectating then
+		applyCamera()
+		if spectatePanel.Visible then refreshSpectate() end
+	end
 
 	-- Ambiance du monde courant (ne fait rien si le monde n'a pas changé).
 	applyAmbiance((s.world and s.world.index) or 1)

@@ -23,7 +23,15 @@ des **renaissances** et grimpe au **classement mondial**.
    **Exclusif ×500** (Le Prodige, ~1 tirage sur 5 000) et **Astral ×1000**
    (L'Astral, ~1 sur 20 000). Le tirage est fait par le serveur (le client
    n'envoie que « je lance »).
-4. **Composer l'équipe** 👥 — le terrain est un vrai baby-foot : **4 bases**
+4. **Composer l'équipe** 👥 — dans COLLECTION → **✏️ COMPOSER**, on choisit qui
+   joue à quel poste : chaque emplacement est nommé (Gardien, Défense, Milieu,
+   Attaque) et se voit assigner une carte précise (📌). Les emplacements laissés
+   libres sont remplis automatiquement par les meilleures cartes restantes — un
+   terrain à trous n'aurait aucun sens. Client et serveur lisent le **même**
+   ordre d'emplacements (`Config.slotOrder`), donc poser le Mythique au gardien
+   le pose vraiment au gardien.
+
+   Le terrain est un vrai baby-foot : **4 bases**
    (Attaque 3, Milieu 5, Défense 2, Gardien 1) = **11 joueurs**, en maillot de
    Paris. L'équipe est **complète dès la première partie** (11 Communs offerts) :
    la progression n'est pas le nombre de joueurs mais leur rareté — les dés
@@ -60,8 +68,12 @@ des **renaissances** et grimpe au **classement mondial**.
    il tremble, éclate et **le pet s'élève au-dessus du socle** — l'animation vit
    côté serveur, les autres joueurs la voient donc aussi. Chaque pet
    **multiplie l'argent** (×1,1 au Stade jusqu'à ×6000 en Radioactif). Les pets
-   se rangent dans le **sac à dos**, **un seul est équipé** à la fois et suit le
-   joueur — bouton ⭐ *équiper le meilleur*.
+   se rangent dans le **sac à dos** et **plusieurs s'équipent** à la fois
+   (2 places, +1 toutes les 2 renaissances, 6 au maximum) — bouton ⭐ *équiper
+   les meilleurs*. Leurs bonus **s'additionnent** (`1 + Σ(mult−1)`) : trois pets
+   à ×6000 donnent ×17 998 et non ×2·10¹¹, qui écraserait tout le reste du jeu.
+   Un **index des pets** (📕 → 🐾) liste les 36 pets par monde et par œuf, avec
+   ceux qui manquent.
 
    Les prix sont **calés sur le prix du monde** (250 K → 5 B au Stade,
    5 Qi → 50 Sx en Galactique, 5 Sp → 50 Oc en Radioactif) : le premier œuf d'un
@@ -87,7 +99,14 @@ des **renaissances** et grimpe au **classement mondial**.
 13. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
    à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
    Le cycle vit côté serveur, le panneau ne fait que l'afficher.
-14. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
+14. **Mode spectateur** 👁 — on va regarder le terrain d'un autre joueur. Le
+   serveur **déplace vraiment le personnage** jusqu'au parvis de la cible : avec
+   `StreamingEnabled`, un plot à 600 studs n'est même pas chargé chez nous, une
+   caméra seule ne montrerait rien. Un bandeau permanent ramène chez soi.
+15. **Mode AFK** 💤 — la puissance monte toute seule à **55 %** du rythme de
+   l'entraînement à la main, avec le même haltère. Assez pour que s'absenter
+   serve, pas assez pour rendre le bouton inutile.
+16. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
    OrderedDataStore : un au parvis (visible dès l'arrivée) et le grand écran
    derrière le but. Une seule requête sert tous les panneaux.
 

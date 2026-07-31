@@ -21,6 +21,9 @@ local EVENT_NAMES = {
 	"World",        -- client -> serveur : {kind = "buy"} ou {kind = "go", index = n}
 	"Pet",          -- client -> serveur : {kind = "equip"|"best"|"none", key = "..."}
 	"Egg",          -- client -> serveur : ouvrir un œuf (clé) — aussi appelé par le clic sur l'œuf
+	"Lineup",       -- client -> serveur : {slot = n, cardId = id} ou {kind = "auto"}
+	"Spectate",     -- client -> serveur : {kind = "start", userId = n} ou {kind = "stop"}
+	"Afk",          -- client -> serveur : interrupteur du mode AFK (bool)
 	"PetResult",    -- serveur -> client : {pet = {...}, cost = n} pour l'animation d'éclosion
 	"Tutorial",     -- client -> serveur : tutoriel terminé (à ne plus rejouer)
 	"ReleaseSeen",  -- client -> serveur : pop-up des nouveautés lu (version en cours)

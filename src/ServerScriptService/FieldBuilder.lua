@@ -526,38 +526,25 @@ function FieldBuilder.slotLayout(field)
 
 	-- Positions, base par base.
 	local perBase = {}
-	local total = 0
 	for b, base in bases do
 		perBase[b] = {}
 		local z = startZ + spanZ * base.depth
 		for c = 0, base.slots - 1 do
 			local x = field.origin.X + ((c + 0.5) / base.slots - 0.5) * (field.width - 14)
-			table.insert(perBase[b], {
-				base = base.name,
-				position = Vector3.new(x, field.origin.Y + 3.5, z),
-			})
+			table.insert(perBase[b], Vector3.new(x, field.origin.Y + 3.5, z))
 		end
-		total += base.slots
 	end
 
-	-- Ordre de déblocage EN ROND, du gardien vers l'attaque : les 4 premiers
-	-- emplacements donnent donc un gardien, un défenseur, un milieu et un
-	-- attaquant. Remplir base par base laissait le but désert au départ.
+	-- L'ORDRE vient de Config.slotOrder, partagé avec le client : c'est lui qui
+	-- décide quel emplacement est le n°1. L'écran de composition d'équipe s'en
+	-- sert aussi — les deux doivent lire exactement la même liste, sinon poser un
+	-- joueur au gardien ne le poserait pas au gardien.
 	local slots = {}
-	local order = { 4, 3, 2, 1 }  -- Gardien, Défense, Milieu, Attaque
-	local cursor = { 0, 0, 0, 0 }
-	while #slots < total do
-		local placedOne = false
-		for _, b in order do
-			local list = perBase[b]
-			if list and cursor[b] < #list then
-				cursor[b] += 1
-				table.insert(slots, list[cursor[b]])
-				placedOne = true
-				if #slots >= total then break end
-			end
+	for i, entry in Config.slotOrder(nil, bases) do
+		local pos = perBase[entry.baseIndex] and perBase[entry.baseIndex][entry.indexInBase]
+		if pos then
+			slots[i] = { base = entry.base, position = pos }
 		end
-		if not placedOne then break end
 	end
 	return slots
 end

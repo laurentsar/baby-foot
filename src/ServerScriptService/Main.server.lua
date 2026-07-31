@@ -44,6 +44,9 @@ local rWorld = Remotes.get("World")
 local rPet = Remotes.get("Pet")
 local rEgg = Remotes.get("Egg")
 local rPetResult = Remotes.get("PetResult")
+local rLineup = Remotes.get("Lineup")
+local rSpectate = Remotes.get("Spectate")
+local rAfk = Remotes.get("Afk")
 
 -- Tirage des dés : un seul générateur serveur, jamais le client.
 local rng = Random.new()
@@ -73,9 +76,13 @@ type Session = {
 	challengeBest: number,
 	-- Plateforme des œufs du monde courant (reconstruite à chaque téléportation).
 	eggPlatform: any,
-	-- Modèle du pet équipé, qui suit le personnage.
-	petModel: Model?,
+	-- Modèles des pets équipés, qui suivent le personnage (un par place).
+	petModels: { Model },
 	lastEgg: number,
+	-- Mode spectateur : UserId regardé, nil quand on joue normalement.
+	spectating: number?,
+	-- Position de retour quand on arrête de regarder quelqu'un.
+	spectateReturn: Vector3?,
 	-- Rythme de gain de la session, qui alimente les gains hors ligne.
 	sessionStart: number,
 	sessionEarned: number,
@@ -165,8 +172,8 @@ local function moneyMultiplier(session: Session): number
 	-- x4 en Radioactif. C'est ce qui donne du sens à la téléportation — revenir au
 	-- Stade pour le décor, c'est accepter de gagner moins.
 	m *= Config.worldMultiplier(session.data.worldAt or session.data.world)
-	-- Pet équipé.
-	m *= Config.petMultiplier(session.data.petEquipped)
+	-- Pets équipés : leurs bonus s'additionnent (cf. Config.petsMultiplier).
+	m *= Config.petsMultiplier(session.data.petsEquipped)
 	-- Potion d'Or.
 	m *= effectMult(session, "money")
 	return m
@@ -197,11 +204,54 @@ local function unlockedSlots(session: Session): number
 	return math.clamp(session.data.slots, 0, maxSlotsFor(session))
 end
 
--- L'équipe posée sur les bases : les meilleures cartes de la collection, dans la
--- limite des emplacements débloqués. Trié par multiplicateur décroissant.
+-- IDENTIFIANT DE CARTE.
+--
+-- L'index dans `data.cards` bouge (un don retire une carte, un dé en jette une
+-- au plafond) : la composition d'équipe ne peut donc pas s'y référer. Chaque
+-- carte porte un id stable, attribué une fois pour toutes.
+local function newCardId(d): number
+	local id = math.max(1, math.floor(tonumber(d.nextCardId) or 1))
+	d.nextCardId = id + 1
+	return id
+end
+
+local function makeCard(d, name: string, rarity: string)
+	return { id = newCardId(d), name = name, rarity = rarity }
+end
+
+-- L'équipe posée sur les bases.
+--
+-- Deux couches : d'abord les emplacements que le joueur a lui-même composés
+-- (data.lineup, clés en TEXTE pour rester encodables en JSON), puis les
+-- meilleures cartes restantes dans les emplacements laissés libres. Un terrain
+-- à moitié vide parce qu'on n'a pas fini sa composition n'aurait aucun sens.
 local function squadOf(session: Session)
-	local cards = table.clone(session.data.cards)
-	table.sort(cards, function(a, b)
+	local d = session.data
+	local slots = unlockedSlots(session)
+
+	local byId = {}
+	for _, card in d.cards do
+		if card.id then byId[card.id] = card end
+	end
+
+	local squad = {}
+	local used: { [number]: boolean } = {}
+	for slotKey, cardId in d.lineup or {} do
+		local slot = tonumber(slotKey)
+		local card = byId[tonumber(cardId) or -1]
+		if slot and card and slot >= 1 and slot <= slots and not used[card.id] then
+			squad[slot] = card
+			used[card.id] = true
+		end
+	end
+
+	local rest = {}
+	for _, card in d.cards do
+		if not (card.id and used[card.id]) then
+			table.insert(rest, card)
+		end
+	end
+	table.sort(rest, function(a, b)
 		local ma = Config.rarity(a.rarity).mult
 		local mb = Config.rarity(b.rarity).mult
 		if ma == mb then
@@ -209,11 +259,29 @@ local function squadOf(session: Session)
 		end
 		return ma > mb
 	end)
-	local squad = {}
-	for i = 1, math.min(#cards, unlockedSlots(session)) do
-		squad[i] = cards[i]
+
+	local next_ = 1
+	for i = 1, slots do
+		if not squad[i] then
+			squad[i] = rest[next_]
+			next_ += 1
+		end
 	end
 	return squad
+end
+
+-- Retire une carte de la composition. Appelé dès qu'une carte quitte la
+-- collection (don, carte jetée quand le sac est plein) : sans ça, l'emplacement
+-- resterait réservé à une carte qui n'existe plus et paraîtrait vide.
+local function clearLineupFor(session: Session, cardId: number?)
+	if not cardId then return end
+	local lineup = session.data.lineup
+	if not lineup then return end
+	for slotKey, id in lineup do
+		if tonumber(id) == cardId then
+			lineup[slotKey] = nil
+		end
+	end
 end
 
 -------------------------------------------------------------------------------
@@ -286,8 +354,16 @@ local function buildStats(session: Session)
 			return list
 		end)(),
 		pets = d.pets or {},
-		petEquipped = d.petEquipped or "",
-		petMult = Config.petMultiplier(d.petEquipped),
+		petsEquipped = d.petsEquipped or {},
+		petSlots = Config.petSlots(d.rebirths),
+		petMult = Config.petsMultiplier(d.petsEquipped),
+		-- COMPOSITION D'ÉQUIPE : le client redessine les emplacements avec
+		-- Config.slotOrder(extra) — il a `rebirths`, il calcule le même ordre.
+		lineup = d.lineup or {},
+		extraSlots = extraSlotsFor(session),
+		afk = d.afk == true,
+		afkPerSec = Config.afkPowerPerSecond(Config.Dumbbells[d.dumbbell].powerGain),
+		spectating = session.spectating,
 		-- SAC À DOS + effets en cours.
 		potions = d.potions or {},
 		effects = {
@@ -368,6 +444,11 @@ local function pushCollection(player: Player)
 		unlockedSlots = unlockedSlots(session),
 		maxSlots = maxSlotsFor(session),
 		index = indexOf(session),
+		-- Pour l'écran de composition : les emplacements figés par le joueur et le
+		-- nombre d'emplacements bonus (le client en déduit le même ordre que le
+		-- serveur via Config.slotOrder).
+		lineup = session.data.lineup or {},
+		extraSlots = extraSlotsFor(session),
 	})
 end
 
@@ -878,7 +959,10 @@ rGift.OnServerEvent:Connect(function(player, payload)
 		-- donneur. Un don qui laisserait l'original en place serait une machine à
 		-- dupliquer les Divins.
 		table.remove(session.data.cards, i)
-		table.insert(tSession.data.cards, { name = card.name, rarity = card.rarity })
+		-- La carte change de propriétaire, donc d'identifiant : les ids sont
+		-- comptés par joueur, celui du donneur ne veut rien dire chez le receveur.
+		clearLineupFor(session, card.id)
+		table.insert(tSession.data.cards, makeCard(tSession.data, card.name, card.rarity))
 		session.lastGift = now
 
 		local r = Config.rarity(card.rarity)
@@ -939,10 +1023,8 @@ rAdmin.OnServerEvent:Connect(function(player, payload)
 		local count = math.clamp(math.floor(tonumber(payload.count) or 1), 1, 50)
 		local name = if typeof(payload.name) == "string" and payload.name ~= "" then payload.name else nil
 		for _ = 1, count do
-			table.insert(session.data.cards, {
-				name = name or Config.cardNameFor(rarity, rng),
-				rarity = rarity,
-			})
+			table.insert(session.data.cards,
+				makeCard(session.data, name or Config.cardNameFor(rarity, rng), rarity))
 		end
 		repopulate(session)
 		pushCollection(player)
@@ -1056,7 +1138,7 @@ local function performRoll(player: Player, silent: boolean): boolean
 	-- Chance = amélioration en jeu (x5 max) x passe Chance x20, plafonnée.
 	local luck = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true)
 	local key = Config.rollRarity(rng, session.passes.LuckyDice == true, luck)
-	local card = { name = Config.cardNameFor(key, rng), rarity = key }
+	local card = makeCard(d, Config.cardNameFor(key, rng), key)
 	table.insert(d.cards, card)
 
 	-- Collection pleine : on jette la carte la plus faible, jamais la nouvelle.
@@ -1068,7 +1150,9 @@ local function performRoll(player: Player, silent: boolean): boolean
 				worstIdx, worstMult = i, m
 			end
 		end
+		local dropped = d.cards[worstIdx]
 		table.remove(d.cards, worstIdx)
+		if dropped then clearLineupFor(session, dropped.id) end
 	end
 
 	repopulate(session)
@@ -1217,6 +1301,10 @@ end)
 -- le prix, l'argent et le monde depuis SA copie des données.
 -------------------------------------------------------------------------------
 local hatchEgg  -- défini plus bas, référencé par les ClickDetector
+-- Déclarés avant : l'éclosion équipe le pet obtenu s'il reste une place, donc
+-- elle appelle buildPetModels, qui est écrit plus bas.
+local buildPetModels
+local destroyPetModels
 
 local function destroyEggPlatform(session: Session)
 	if session.eggPlatform and session.eggPlatform.model then
@@ -1276,12 +1364,19 @@ hatchEgg = function(player: Player, eggKey: string)
 	d.pets = d.pets or {}
 	d.pets[key] = (tonumber(d.pets[key]) or 0) + 1
 
-	-- Premier pet obtenu : on l'équipe tout seul. Sans ça, le joueur ouvre son
-	-- premier œuf, ne voit rien changer et croit que le pet ne sert à rien.
+	-- Tant qu'il reste une place libre, le pet obtenu est équipé tout seul. Sans
+	-- ça, le joueur ouvre son premier œuf, ne voit rien changer et croit que le
+	-- pet ne sert à rien.
 	local autoEquip = false
-	if (d.petEquipped or "") == "" then
-		d.petEquipped = key
+	d.petsEquipped = d.petsEquipped or {}
+	local already = false
+	for _, k in d.petsEquipped do
+		if k == key then already = true break end
+	end
+	if not already and #d.petsEquipped < Config.petSlots(d.rebirths) then
+		table.insert(d.petsEquipped, key)
 		autoEquip = true
+		buildPetModels(session, player)
 	end
 
 	-- Animation d'éclosion sur l'œuf cliqué. Elle vit côté serveur, donc les
@@ -1313,73 +1408,74 @@ rEgg.OnServerEvent:Connect(function(player, eggKey)
 end)
 
 -------------------------------------------------------------------------------
--- LE PET QUI SUIT LE JOUEUR.
+-- LES PETS QUI SUIVENT LE JOUEUR.
 --
--- Un seul modèle par joueur, ancré, repositionné par une boucle unique : un
--- BodyPosition ou une contrainte physique par pet coûterait bien plus cher pour
--- un objet qui ne fait que flotter.
+-- Un modèle par pet équipé, ancré, repositionné par une boucle unique : une
+-- contrainte physique par pet coûterait bien plus cher pour des objets qui ne
+-- font que flotter. Ils sont disposés en éventail derrière le joueur, donc le
+-- deuxième pet ne se pose pas dans le premier.
 -------------------------------------------------------------------------------
-local function destroyPetModel(session: Session)
-	if session.petModel then
-		session.petModel:Destroy()
-		session.petModel = nil
+destroyPetModels = function(session: Session)
+	for _, model in session.petModels do
+		if model then model:Destroy() end
 	end
+	session.petModels = {}
 end
 
-local function buildPetModel(session: Session, player: Player)
-	destroyPetModel(session)
-	local key = session.data.petEquipped
-	if not key or key == "" then return end
-	local pet = Config.pet(key)
-	if not pet then return end
+buildPetModels = function(session: Session, player: Player)
+	destroyPetModels(session)
+	for _, key in session.data.petsEquipped or {} do
+		local pet = Config.pet(key)
+		if pet then
+			local model = Instance.new("Model")
+			model.Name = "Pet_" .. player.Name
 
-	local model = Instance.new("Model")
-	model.Name = "Pet_" .. player.Name
+			local body = Instance.new("Part")
+			body.Name = "Corps"
+			body.Shape = Enum.PartType.Ball
+			body.Size = Vector3.new(2.6, 2.6, 2.6)
+			body.Color = pet.color
+			body.Material = Enum.Material.Neon
+			body.Anchored = true
+			body.CanCollide = false
+			body.CastShadow = false
+			body.Parent = model
+			model.PrimaryPart = body
 
-	local body = Instance.new("Part")
-	body.Name = "Corps"
-	body.Shape = Enum.PartType.Ball
-	body.Size = Vector3.new(2.6, 2.6, 2.6)
-	body.Color = pet.color
-	body.Material = Enum.Material.Neon
-	body.Anchored = true
-	body.CanCollide = false
-	body.CastShadow = false
-	body.Parent = model
-	model.PrimaryPart = body
+			for _, side in { -1, 1 } do
+				local eye = Instance.new("Part")
+				eye.Name = "Oeil"
+				eye.Shape = Enum.PartType.Ball
+				eye.Size = Vector3.new(0.6, 0.6, 0.6)
+				eye.Color = Color3.fromRGB(20, 20, 28)
+				eye.Material = Enum.Material.SmoothPlastic
+				eye.Anchored = true
+				eye.CanCollide = false
+				eye.CastShadow = false
+				eye.CFrame = body.CFrame * CFrame.new(side * 0.6, 0.4, -1.1)
+				eye.Parent = model
+			end
 
-	for _, side in { -1, 1 } do
-		local eye = Instance.new("Part")
-		eye.Name = "Oeil"
-		eye.Shape = Enum.PartType.Ball
-		eye.Size = Vector3.new(0.6, 0.6, 0.6)
-		eye.Color = Color3.fromRGB(20, 20, 28)
-		eye.Material = Enum.Material.SmoothPlastic
-		eye.Anchored = true
-		eye.CanCollide = false
-		eye.CastShadow = false
-		eye.CFrame = body.CFrame * CFrame.new(side * 0.6, 0.4, -1.1)
-		eye.Parent = model
+			local tag = Instance.new("BillboardGui")
+			tag.Name = "Nom"
+			tag.Size = UDim2.fromOffset(150, 34)
+			tag.StudsOffset = Vector3.new(0, 2.2, 0)
+			tag.MaxDistance = 90
+			tag.Parent = body
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.fromScale(1, 1)
+			label.BackgroundTransparency = 1
+			label.Text = string.format("%s  x%s", pet.name, Config.abbreviate(pet.mult))
+			label.Font = Enum.Font.GothamBold
+			label.TextSize = 13
+			label.TextColor3 = pet.color
+			label.TextStrokeTransparency = 0.3
+			label.Parent = tag
+
+			model.Parent = workspace
+			table.insert(session.petModels, model)
+		end
 	end
-
-	local tag = Instance.new("BillboardGui")
-	tag.Name = "Nom"
-	tag.Size = UDim2.fromOffset(150, 34)
-	tag.StudsOffset = Vector3.new(0, 2.2, 0)
-	tag.MaxDistance = 90
-	tag.Parent = body
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Text = string.format("%s  x%s", pet.name, Config.abbreviate(pet.mult))
-	label.Font = Enum.Font.GothamBold
-	label.TextSize = 13
-	label.TextColor3 = pet.color
-	label.TextStrokeTransparency = 0.3
-	label.Parent = tag
-
-	model.Parent = workspace
-	session.petModel = model
 end
 
 task.spawn(function()
@@ -1387,14 +1483,18 @@ task.spawn(function()
 	while true do
 		t += 1 / 20
 		for player, session in sessions do
-			local model = session.petModel
-			if model and model.PrimaryPart then
-				local char = player.Character
-				local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if hrp then
-					-- Derrière l'épaule gauche, avec un petit flottement.
-					local target = hrp.CFrame * CFrame.new(-3.2, 1.4 + math.sin(t * 3) * 0.35, 2.4)
-					model:PivotTo(model:GetPivot():Lerp(CFrame.new(target.Position), 0.35))
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if hrp then
+				local n = #session.petModels
+				for i, model in session.petModels do
+					if model.PrimaryPart then
+						-- En éventail derrière le joueur : -3.2 pour un seul pet,
+						-- puis étalés de part et d'autre.
+						local spread = if n > 1 then ((i - 1) / (n - 1) - 0.5) * 6.4 else 0
+						local target = hrp.CFrame * CFrame.new(-3.2 + spread, 1.4 + math.sin(t * 3 + i) * 0.35, 2.4)
+						model:PivotTo(model:GetPivot():Lerp(CFrame.new(target.Position), 0.35))
+					end
 				end
 			end
 		end
@@ -1402,13 +1502,33 @@ task.spawn(function()
 	end
 end)
 
+-- Nombre de places de pets, et liste nettoyée de ce qu'on ne possède plus.
+local function normalizeEquipped(session: Session)
+	local d = session.data
+	local slots = Config.petSlots(d.rebirths)
+	local out = {}
+	local seen: { [string]: boolean } = {}
+	for _, key in d.petsEquipped or {} do
+		-- Un pet équipé qu'on n'a plus (ou en double) n'a rien à faire là.
+		if typeof(key) == "string" and not seen[key] and (tonumber((d.pets or {})[key]) or 0) > 0 then
+			seen[key] = true
+			table.insert(out, key)
+			if #out >= slots then break end
+		end
+	end
+	d.petsEquipped = out
+	return slots
+end
+
 rPet.OnServerEvent:Connect(function(player, payload)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(payload) ~= "table" then return end
-	if not allow(player, "pet", 0.25) then return end
+	if not allow(player, "pet", 0.2) then return end
 	local d = session.data
 	d.pets = d.pets or {}
+	d.petsEquipped = d.petsEquipped or {}
+	local slots = normalizeEquipped(session)
 
 	if payload.kind == "equip" then
 		local key = payload.key
@@ -1419,26 +1539,106 @@ rPet.OnServerEvent:Connect(function(player, payload)
 			rToast:FireClient(player, "Tu ne possèdes pas ce pet.")
 			return
 		end
-		d.petEquipped = key
-	elseif payload.kind == "best" then
-		local best = Config.bestOwnedPet(d.pets)
-		if not best then
-			rToast:FireClient(player, "Aucun pet — ouvre un œuf sur la plateforme 🥚")
+		for i, k in d.petsEquipped do
+			if k == key then
+				-- Déjà équipé : le clic le retire, c'est le même bouton.
+				table.remove(d.petsEquipped, i)
+				buildPetModels(session, player)
+				pushStats(player)
+				return
+			end
+		end
+		if #d.petsEquipped >= slots then
+			rToast:FireClient(player, string.format(
+				"Places de pets pleines (%d) — retires-en un, ou renais pour en gagner une.", slots))
 			return
 		end
-		d.petEquipped = best
+		table.insert(d.petsEquipped, key)
+
+	elseif payload.kind == "best" then
+		-- Les meilleurs pets DIFFÉRENTS, dans la limite des places.
+		local ranked = {}
+		for key, count in d.pets do
+			local pet = Config.pet(key)
+			if pet and (tonumber(count) or 0) > 0 then
+				table.insert(ranked, { key = key, mult = pet.mult })
+			end
+		end
+		if #ranked == 0 then
+			rToast:FireClient(player, "Aucun pet — ouvre un œuf au parvis 🥚")
+			return
+		end
+		table.sort(ranked, function(a, b) return a.mult > b.mult end)
+		local out = {}
+		for i = 1, math.min(slots, #ranked) do
+			out[i] = ranked[i].key
+		end
+		d.petsEquipped = out
+
 	elseif payload.kind == "none" then
-		d.petEquipped = ""
+		d.petsEquipped = {}
 	else
 		return
 	end
 
-	buildPetModel(session, player)
+	buildPetModels(session, player)
 	pushStats(player)
-	local pet = Config.pet(d.petEquipped)
-	rToast:FireClient(player, if pet
-		then "🐾 " .. pet.name .. " équipé — argent x" .. Config.abbreviate(pet.mult)
-		else "🐾 Pet rangé.")
+	rToast:FireClient(player, string.format("🐾 %d pet(s) équipé(s) — argent x%s",
+		#d.petsEquipped, Config.abbreviate(Config.petsMultiplier(d.petsEquipped))))
+end)
+
+-------------------------------------------------------------------------------
+-- COMPOSITION D'ÉQUIPE : choisir quelle carte va sur quel emplacement.
+--
+-- Le serveur ne stocke qu'un couple (emplacement -> id de carte). Tout le reste
+-- (la carte existe-t-elle, l'emplacement est-il débloqué) est revérifié à chaque
+-- lecture par squadOf : une composition périmée ne peut donc rien casser.
+-------------------------------------------------------------------------------
+rLineup.OnServerEvent:Connect(function(player, payload)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+	if not allow(player, "lineup", 0.15) then return end
+	local d = session.data
+	d.lineup = d.lineup or {}
+
+	if payload.kind == "auto" then
+		-- Retour au placement automatique : les meilleures cartes d'abord.
+		d.lineup = {}
+		repopulate(session)
+		pushCollection(player)
+		pushStats(player)
+		rToast:FireClient(player, "👥 Composition automatique : les meilleurs joueurs devant.")
+		return
+	end
+
+	local slot = tonumber(payload.slot)
+	if not slot or slot ~= slot then return end
+	slot = math.floor(slot)
+	if slot < 1 or slot > maxSlotsFor(session) then return end
+
+	if payload.cardId == nil then
+		d.lineup[tostring(slot)] = nil
+	else
+		local cardId = tonumber(payload.cardId)
+		if not cardId then return end
+		local found = nil
+		for _, card in d.cards do
+			if card.id == cardId then found = card break end
+		end
+		if not found then
+			rToast:FireClient(player, "Cette carte n'est plus dans ta collection.")
+			return
+		end
+		-- Une carte ne peut pas tenir deux postes : on la retire de son ancien
+		-- emplacement avant de la poser sur le nouveau.
+		clearLineupFor(session, cardId)
+		d.lineup[tostring(slot)] = cardId
+	end
+
+	repopulate(session)
+	pushCollection(player)
+	pushStats(player)
 end)
 
 -------------------------------------------------------------------------------
@@ -1511,6 +1711,113 @@ rWorld.OnServerEvent:Connect(function(player, payload)
 		pushStats(player)
 		local w = Config.world(index)
 		rToast:FireClient(player, "🚀 Téléporté au monde " .. w.name .. " — argent x" .. w.moneyMult)
+	end
+end)
+
+-------------------------------------------------------------------------------
+-- MODE SPECTATEUR.
+--
+-- Regarder quelqu'un, ce n'est pas seulement bouger une caméra : avec
+-- StreamingEnabled, le plot d'en face n'est même pas chargé chez le
+-- spectateur (les plots sont espacés de 600 studs). On DÉPLACE donc le
+-- personnage jusqu'au parvis de la cible — le streaming charge la zone, et la
+-- caméra du client n'a plus qu'à suivre.
+--
+-- Le spectateur garde son propre terrain : il peut toujours tirer, et ses tirs
+-- restent chez lui. Il ne peut rien faire sur le plot qu'il visite.
+-------------------------------------------------------------------------------
+local function stopSpectating(session: Session, player: Player)
+	if not session.spectating then return end
+	session.spectating = nil
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local back = session.spectateReturn or session.spawnPos
+	if hrp and back then
+		hrp.CFrame = CFrame.new(back)
+	end
+	session.spectateReturn = nil
+end
+
+rSpectate.OnServerEvent:Connect(function(player, payload)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(payload) ~= "table" then return end
+	if not allow(player, "spectate", 0.5) then return end
+
+	if payload.kind == "stop" then
+		stopSpectating(session, player)
+		pushStats(player)
+		rToast:FireClient(player, "👁 Retour chez toi.")
+		return
+	end
+
+	if payload.kind ~= "start" then return end
+	if typeof(payload.userId) ~= "number" then return end
+	local target = Players:GetPlayerByUserId(payload.userId)
+	local tSession = target and sessions[target]
+	if not target or target == player or not tSession then
+		rToast:FireClient(player, "Ce joueur n'est plus sur le serveur.")
+		return
+	end
+
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hrp then return end
+	-- Mémorisé au premier départ seulement : enchaîner deux spectateurs ne doit
+	-- pas faire de la position d'un plot visité le « chez soi ».
+	if not session.spectating then
+		session.spectateReturn = hrp.Position
+	end
+	session.spectating = target.UserId
+	-- Un peu en retrait du parvis de la cible : on voit l'allée, le portique et
+	-- le terrain derrière, sans lui marcher dessus.
+	local dest = (tSession.spawnPos or Config.Field.origin) + Vector3.new(0, 3, -14)
+	hrp.CFrame = CFrame.new(dest)
+
+	pushStats(player)
+	rToast:FireClient(player, "👁 Tu regardes " .. target.DisplayName .. ".")
+end)
+
+-------------------------------------------------------------------------------
+-- MODE AFK : la puissance monte toute seule, un peu moins vite qu'à la main.
+--
+-- Le calcul vit ici et nulle part ailleurs : le client n'envoie qu'un
+-- interrupteur. Le gain suit l'haltère du joueur, comme l'entraînement manuel —
+-- laisser le jeu tourner ne doit pas rendre les haltères inutiles.
+-------------------------------------------------------------------------------
+rAfk.OnServerEvent:Connect(function(player, on)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(on) ~= "boolean" then return end
+	if not allow(player, "afk", 0.3) then return end
+	session.data.afk = on
+	pushStats(player)
+	rToast:FireClient(player, if on
+		then string.format("💤 Mode AFK : +%s puissance/s (%d %% du rythme manuel).",
+			Config.abbreviate(Config.afkPowerPerSecond(Config.Dumbbells[session.data.dumbbell].powerGain)),
+			math.floor(Config.Afk.rate * 100))
+		else "🏋️ Mode AFK coupé.")
+end)
+
+task.spawn(function()
+	local A = Config.Afk
+	local ticks = 0
+	while true do
+		task.wait(A.interval)
+		ticks += 1
+		for player, session in sessions do
+			if session.data.afk then
+				local gain = Config.afkPowerPerSecond(Config.Dumbbells[session.data.dumbbell].powerGain) * A.interval
+				session.data.power += gain
+				updateLeaderstats(session, player)
+				-- L'état complet n'est renvoyé qu'une fois sur trois : la puissance
+				-- monte en continu, mais reconstruire la table de stats chaque
+				-- seconde et par joueur ne se verrait pas à l'écran.
+				if ticks % 3 == 0 then
+					pushStats(player)
+				end
+			end
+		end
 	end
 end)
 
@@ -1660,12 +1967,33 @@ local function onPlayerAdded(player: Player)
 	-- trous donnait l'impression qu'il manquait des joueurs.
 	local extraFromRebirths = Config.extraSlotsFromRebirths(data.rebirths)
 	local starterTarget = Config.StartingSlots + extraFromRebirths
-	while #data.cards < starterTarget do
-		table.insert(data.cards, {
-			name = Config.randomPlayerName(rng),
-			rarity = Config.StarterRarity,
-		})
+	-- Sauvegardes d'avant les identifiants de carte : on en attribue un à chaque
+	-- carte qui n'en a pas, sinon la composition d'équipe n'aurait rien à
+	-- désigner. `nextCardId` repart au-dessus du plus grand id déjà présent.
+	data.nextCardId = math.max(1, math.floor(tonumber(data.nextCardId) or 1))
+	for _, card in data.cards do
+		if card.id then
+			data.nextCardId = math.max(data.nextCardId, math.floor(card.id) + 1)
+		end
 	end
+	for _, card in data.cards do
+		if not card.id then
+			card.id = data.nextCardId
+			data.nextCardId += 1
+		end
+	end
+
+	while #data.cards < starterTarget do
+		table.insert(data.cards, makeCard(data, Config.randomPlayerName(rng), Config.StarterRarity))
+	end
+
+	-- Sauvegardes d'avant les places multiples : le pet unique devient le premier
+	-- de la liste. `petEquipped` reste écrit mais n'est plus lu.
+	data.petsEquipped = data.petsEquipped or {}
+	if #data.petsEquipped == 0 and typeof(data.petEquipped) == "string" and data.petEquipped ~= "" then
+		table.insert(data.petsEquipped, data.petEquipped)
+	end
+	data.lineup = data.lineup or {}
 	data.slots = math.max(data.slots or 0, starterTarget)
 
 	-- Sauvegardes d'avant l'ajout de `rolls` : le compteur y vaut 0, ce qui
@@ -1723,8 +2051,10 @@ local function onPlayerAdded(player: Player)
 		board = nil,
 		challengeBest = 0,
 		eggPlatform = nil,
-		petModel = nil,
+		petModels = {},
 		lastEgg = 0,
+		spectating = nil,
+		spectateReturn = nil,
 		sessionStart = os.clock(),
 		sessionEarned = 0,
 	}
@@ -1753,12 +2083,17 @@ local function onPlayerAdded(player: Player)
 	end
 
 	buildEggPlatformFor(session, player)
-	buildPetModel(session, player)
+	buildPetModels(session, player)
 
 	repopulate(session)
 	updateLeaderstats(session, player)
 
 	player.CharacterAdded:Connect(function(char)
+		-- Mourir ou réapparaître met fin au mode spectateur : le personnage revient
+		-- chez lui de toute façon, laisser le drapeau allumé ferait une caméra
+		-- braquée sur quelqu'un d'autre pendant qu'on joue.
+		session.spectating = nil
+		session.spectateReturn = nil
 		local hrp = char:WaitForChild("HumanoidRootPart") :: BasePart
 		-- Apparition sur le parvis de SON plot : les SpawnLocation sont désactivés,
 		-- sinon Roblox en choisirait un au hasard et on arriverait chez le voisin.
@@ -1812,7 +2147,16 @@ local function onPlayerRemoving(player: Player)
 	end
 
 	destroyEggPlatform(session)
-	destroyPetModel(session)
+	destroyPetModels(session)
+
+	-- Ceux qui le regardaient n'ont plus rien à voir : on les ramène chez eux.
+	for other, otherSession in sessions do
+		if otherSession.spectating == player.UserId then
+			stopSpectating(otherSession, other)
+			pushStats(other)
+			rToast:FireClient(other, "👁 " .. player.DisplayName .. " a quitté la partie.")
+		end
+	end
 
 	-- Décor du plot : sans ça, chaque passage laissait un stade fantôme (entrée,
 	-- arbres, gym) dans le monde.

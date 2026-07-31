@@ -44,7 +44,15 @@ function DataModule.default()
 		world = 1,       -- monde débloqué le plus haut (cf. Config.Worlds) — gardé à la renaissance
 		worldAt = 1,     -- monde où l'on se trouve (téléportation) : c'est LUI qui donne le multiplicateur
 		pets = {},       -- sac à dos : { [clé de pet] = nombre }
-		petEquipped = "",-- un seul pet équipé à la fois (cf. Config.Eggs)
+		-- Pets équipés : une LISTE de clés, bornée par Config.petSlots(rebirths).
+		-- (l'ancien champ `petEquipped`, un seul pet, est repris au chargement)
+		petsEquipped = {},
+		petEquipped = "",-- conservé pour reprendre les sauvegardes d'avant les places multiples
+		-- COMPOSITION D'ÉQUIPE : { [numéro d'emplacement] = id de carte }. Un
+		-- emplacement absent est rempli automatiquement par les meilleures cartes.
+		lineup = {},
+		nextCardId = 1,  -- les cartes portent un id stable, l'index dans la liste bouge
+		afk = false,     -- mode AFK : la puissance monte toute seule, plus lentement
 		potions = {},    -- sac à dos : { [clé de potion] = nombre }
 		effects = {},    -- effets en cours : { [kind] = { mult = n, expires = <os.time> } }
 		tutorialDone = false,
