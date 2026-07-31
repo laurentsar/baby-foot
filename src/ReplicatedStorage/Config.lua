@@ -7,6 +7,33 @@ local Config = {}
 Config.SaveKey = "BabyFootPower_v1"  -- change la clé => reset des sauvegardes
 
 -------------------------------------------------------------------------------
+-- NOUVEAUTÉS DE LA VERSION.
+--
+-- À CHAQUE MISE À JOUR : incrémenter `version` et réécrire `notes`. Le client
+-- compare cette chaîne à la dernière version vue par le joueur (gardée dans sa
+-- sauvegarde) et n'affiche le pop-up qu'une fois, à la première connexion qui
+-- suit la mise à jour. Ne rien changer d'autre : le bouton 📣 permet de le
+-- rouvrir quand on veut.
+--
+-- Une version non modifiée = aucun pop-up. C'est volontaire : republier le jeu
+-- pour corriger une faute de frappe ne doit pas relancer une annonce.
+-------------------------------------------------------------------------------
+Config.Release = {
+	version = "1.1.0",
+	title = "🎉 Mise à jour 1.1 — Chance, Mondes & Défis",
+	notes = {
+		"🍀 CHANCE : nouvelle amélioration en boutique, jusqu'à x5 de chance de recruter mieux qu'un Commun. Passe Robux « Chance x20 » pour les pressés.",
+		"🌍 MONDES : Galactique (1 Qa) donne x2 argent pour toujours, Radioactif (1 Sx) x4. Le terrain change de décor et rien n'est perdu à la renaissance.",
+		"🏹 DÉFI DU LOIN : toutes les 10 min, le terrain se vide — un seul but, tirer le plus loin. Les 3 premiers gagnent des potions.",
+		"🎒 SAC À DOS : range tes potions (x2 puissance 5 ou 10 min, x3 argent 30 min) et bois-les quand tu veux.",
+		"💤 HORS LIGNE : ton équipe continue de jouer quand tu quittes, tu récupères une partie des gains au retour.",
+		"📚 TUTORIEL : 8 écrans pour comprendre le jeu, rejouables par le bouton ❓.",
+		"🏟️ DÉCOR : pelouse tondue en bandes, marquages au sol, filet de but, toitures de tribunes, éclairage et ciel retravaillés.",
+		"🐛 CORRECTIONS : les tirs très puissants ne traversent plus les figurines sans les toucher, « Grand Terrain » s'applique dès l'achat, et plus de trous dans le sol des plots.",
+	},
+}
+
+-------------------------------------------------------------------------------
 -- HALTÈRES (haltères = vitesse de gain de puissance à l'entraînement)
 -- powerGain = puissance gagnée par "rep" d'entraînement.
 -------------------------------------------------------------------------------
@@ -237,6 +264,152 @@ function Config.diceCost(rolls: number, hasVIP: boolean): number
 end
 
 -------------------------------------------------------------------------------
+-- CHANCE : améliore les tirages de dés, s'achète en jeu.
+--
+-- Le multiplicateur porte sur le POIDS DES RARETÉS AU-DESSUS DU COMMUN, jamais
+-- sur le commun lui-même : c'est ce qui garde le calcul lisible (« x3 de chance
+-- de sortir mieux qu'un commun ») et empêche la chance de dépasser 100 %.
+--
+-- Plafond volontaire à x5 : au-delà, le Mythique tombe si souvent que la
+-- collection n'a plus d'objectif. Le x20, c'est la passe Robux — et seulement
+-- elle (voir Config.LuckPassMultiplier).
+-------------------------------------------------------------------------------
+Config.Luck = {
+	maxLevel = 8,          -- 8 niveaux pour aller de x1 à x5
+	multPerLevel = 0.5,    -- x1 -> x1.5 -> ... -> x5
+	baseCost = 8000,
+	costGrowth = 3.2,
+	maxTotal = 100,        -- garde-fou : chance cumulée (upgrade x passe) jamais au-delà
+}
+
+Config.LuckPassMultiplier = 20   -- passe « Chance x20 »
+
+-- Chance apportée par le niveau d'amélioration seul (x1 à x5).
+function Config.luckFromLevel(level: number): number
+	local l = math.clamp(math.floor(level or 0), 0, Config.Luck.maxLevel)
+	return 1 + l * Config.Luck.multPerLevel
+end
+
+-- Chance totale appliquée au tirage : amélioration x passe, plafonnée.
+function Config.luckMultiplier(level: number, hasLuckPass: boolean): number
+	local m = Config.luckFromLevel(level)
+	if hasLuckPass then m *= Config.LuckPassMultiplier end
+	return math.min(m, Config.Luck.maxTotal)
+end
+
+function Config.luckCost(level: number): number
+	return math.floor(Config.Luck.baseCost * (Config.Luck.costGrowth ^ math.max(0, level)))
+end
+
+-------------------------------------------------------------------------------
+-- MONDES : le terrain change de décor ET tous les gains sont multipliés.
+--
+-- Un monde s'achète UNE fois avec l'argent du jeu, définitivement (une
+-- renaissance ne le reprend pas : ce serait acheter deux fois la même chose).
+-- Le multiplicateur du monde le plus haut débloqué s'applique en permanence, il
+-- n'y a rien à réactiver.
+--
+-- Les seuils sont volontairement énormes : un monde n'est pas une amélioration
+-- de plus, c'est un palier de fin de partie.
+-------------------------------------------------------------------------------
+Config.Worlds = {
+	{ key = "stade",      name = "Stade",       cost = 0,     moneyMult = 1,
+	  ground = Color3.fromRGB(30, 140, 70),   groundMaterial = Enum.Material.Grass,
+	  wall = Color3.fromRGB(120, 80, 45),     accent = Color3.fromRGB(80, 220, 255) },
+	{ key = "galactique", name = "Galactique",  cost = 1e15,  moneyMult = 2,
+	  ground = Color3.fromRGB(38, 26, 78),    groundMaterial = Enum.Material.Slate,
+	  wall = Color3.fromRGB(70, 58, 130),     accent = Color3.fromRGB(180, 110, 255) },
+	{ key = "radioactif", name = "Radioactif",  cost = 1e21,  moneyMult = 4,
+	  ground = Color3.fromRGB(96, 168, 40),   groundMaterial = Enum.Material.Ground,
+	  wall = Color3.fromRGB(64, 92, 30),      accent = Color3.fromRGB(180, 255, 60) },
+}
+
+function Config.world(index: number?)
+	return Config.Worlds[math.clamp(math.floor(index or 1), 1, #Config.Worlds)]
+end
+
+function Config.worldMultiplier(index: number?): number
+	return Config.world(index).moneyMult
+end
+
+-- Monde suivant à débloquer (nil si on a déjà tout).
+function Config.nextWorld(index: number?)
+	local i = math.clamp(math.floor(index or 1), 1, #Config.Worlds)
+	return Config.Worlds[i + 1]
+end
+
+-------------------------------------------------------------------------------
+-- DÉFI DU LOIN (toutes les 10 minutes).
+--
+-- Pendant la fenêtre de défi, le terrain se vide : plus de figurines, plus de
+-- but, plus de murs — un baby-foot infini. Un seul objectif : envoyer la balle
+-- LE PLUS LOIN possible. Aucun argent n'est gagné pendant un tir de défi, c'est
+-- une épreuve d'adresse, pas une source de revenus (sinon elle remplacerait le
+-- jeu normal).
+--
+-- Les récompenses sont des potions, rangées dans le sac à dos : elles ne
+-- s'appliquent pas toutes seules, c'est le joueur qui choisit quand les boire.
+-------------------------------------------------------------------------------
+Config.Challenge = {
+	interval = 600,     -- un défi toutes les 10 minutes
+	duration = 60,      -- durée de la fenêtre de tir
+	warmup = 10,        -- annonce avant le départ
+	-- Durée de vol max d'une balle de défi. C'est elle qui borne le temps de
+	-- l'épreuve : au-delà de cette durée, la décélération est augmentée pour que
+	-- la balle s'arrête à temps (la distance reste strictement croissante avec la
+	-- puissance, donc le classement reste juste — cf. performShot).
+	maxFlight = 12,
+	-- Récompenses par place. Une place sans participant ne distribue rien.
+	rewards = { "argent3_30", "puissance2_10", "puissance2_5" },
+}
+
+-------------------------------------------------------------------------------
+-- POTIONS (sac à dos).
+--
+-- kind = "money" (multiplie l'argent gagné) ou "power" (multiplie la puissance
+-- du tir). Boire une potion du même type qu'un effet en cours ne cumule pas les
+-- multiplicateurs : on garde le meilleur et on ADDITIONNE le temps, sinon deux
+-- potions bues coup sur coup en gaspillaient une.
+-------------------------------------------------------------------------------
+Config.Potions = {
+	{ key = "puissance2_5",  name = "Potion de Puissance",  kind = "power", mult = 2, duration = 300,
+	  desc = "x2 puissance de tir pendant 5 min",  color = Color3.fromRGB(90, 200, 255) },
+	{ key = "puissance2_10", name = "Grande Potion de Puissance", kind = "power", mult = 2, duration = 600,
+	  desc = "x2 puissance de tir pendant 10 min", color = Color3.fromRGB(70, 160, 255) },
+	{ key = "argent3_30",    name = "Potion d'Or",          kind = "money", mult = 3, duration = 1800,
+	  desc = "x3 argent pendant 30 min",           color = Color3.fromRGB(255, 200, 50) },
+}
+
+function Config.potion(key: string)
+	for _, p in Config.Potions do
+		if p.key == key then return p end
+	end
+	return nil
+end
+
+-------------------------------------------------------------------------------
+-- GAINS HORS LIGNE.
+--
+-- On ne simule rien : on retient le rythme de gain observé pendant la partie
+-- (argent par seconde) et on en reverse une fraction pour le temps passé
+-- déconnecté, plafonné. Une simulation complète donnerait le même ordre de
+-- grandeur pour beaucoup plus de code — et récompenserait la déconnexion autant
+-- que le jeu, ce qu'on ne veut pas : d'où le `rate` bien en dessous de 1.
+-------------------------------------------------------------------------------
+Config.Offline = {
+	rate = 0.35,          -- part du rythme de jeu accordée hors ligne
+	maxSeconds = 8 * 3600, -- au-delà de 8 h, on ne compte plus
+	minSeconds = 60,      -- en dessous d'une minute, on ne dit rien
+}
+
+function Config.offlineEarnings(earnPerSec: number, seconds: number): number
+	if earnPerSec ~= earnPerSec or earnPerSec <= 0 then return 0 end
+	if seconds ~= seconds or seconds < Config.Offline.minSeconds then return 0 end
+	local t = math.min(seconds, Config.Offline.maxSeconds)
+	return math.floor(earnPerSec * t * Config.Offline.rate)
+end
+
+-------------------------------------------------------------------------------
 -- VALEUR DES JOUEURS (multipliée ensuite par la rareté de la carte touchée).
 -------------------------------------------------------------------------------
 -- Avec 11 cibles au maximum (contre des dizaines de figurines avant), la valeur
@@ -329,6 +502,7 @@ Config.PassIds = {
 	BallSpeedX2 = 0,
 	BigField    = 0,
 	AutoShoot   = 0,
+	LuckX20     = 0,
 }
 
 Config.Passes = {
@@ -339,6 +513,7 @@ Config.Passes = {
 	BallSpeedX2  = { id = Config.PassIds.BallSpeedX2, price = 129, label = "Vitesse Balle x2", desc = "La balle part deux fois plus vite" },
 	BigField     = { id = Config.PassIds.BigField,    price = 179, label = "Grand Terrain",    desc = "Le fond du baby-foot est deux fois plus grand (but plus facile)" },
 	AutoShoot    = { id = Config.PassIds.AutoShoot,   price = 349, label = "Tir Automatique",  desc = "Tire tout seul, en balayant le terrain. Gratuit pour tous à 500Qa gagnés" },
+	LuckX20      = { id = Config.PassIds.LuckX20,     price = 499, label = "Chance x20",       desc = "x20 de chance de recruter mieux qu'un Commun (se cumule avec l'amélioration Chance)" },
 }
 
 -- Passes encore sans ID, pour l'avertissement au démarrage et l'affichage boutique.
@@ -686,15 +861,25 @@ function Config.playerValueAt(level: number): number
 	return math.floor(Config.PlayerValue.base * (Config.PlayerValue.growth ^ level))
 end
 
--- Tirage d'une rareté. `lucky` = pass Dés Chanceux : le poids des communs est
--- divisé, ce qui remonte mécaniquement toutes les autres raretés.
-function Config.rollRarity(rng: Random, lucky: boolean): string
+-- Tirage d'une rareté.
+--   `lucky`    = pass Dés Chanceux : le poids des communs est divisé, ce qui
+--                remonte mécaniquement toutes les autres raretés.
+--   `luckMult` = chance (amélioration en jeu x passe Chance x20) : multiplie le
+--                poids de TOUT ce qui est au-dessus du commun. Le commun n'est
+--                jamais touché, donc la chance reste bornée : même à x100, il
+--                reste une part de communs.
+function Config.rollRarity(rng: Random, lucky: boolean, luckMult: number?): string
+	local luck = math.max(1, luckMult or 1)
 	local weights = {}
 	local total = 0
 	for i, r in Config.Rarities do
 		local w = r.weight
-		if lucky and r.key == "commun" then
-			w /= Config.Dice.luckyRerollWeight
+		if r.key == "commun" then
+			if lucky then
+				w /= Config.Dice.luckyRerollWeight
+			end
+		else
+			w *= luck
 		end
 		weights[i] = w
 		total += w

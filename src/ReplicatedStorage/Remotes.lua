@@ -17,6 +17,10 @@ local EVENT_NAMES = {
 	"AutoRoll",     -- client -> serveur : interrupteur du roulement auto des dés (bool)
 	"Gift",         -- client -> serveur : {to = userId, kind = "money"|"card", amount|cardIndex}
 	"Admin",        -- client -> serveur : commande admin (contrôlée serveur)
+	"UsePotion",    -- client -> serveur : boire une potion du sac à dos (clé)
+	"Tutorial",     -- client -> serveur : tutoriel terminé (à ne plus rejouer)
+	"ReleaseSeen",  -- client -> serveur : pop-up des nouveautés lu (version en cours)
+	"Challenge",    -- serveur -> client : état du défi du loin + tableau des distances
 	"Roster",       -- serveur -> client : joueurs connectés, pour le panneau de dons
 	"StatsUpdate",  -- serveur -> client : table d'état complète
 	"ShotResult",   -- serveur -> client : {hits, money, scored, tier}

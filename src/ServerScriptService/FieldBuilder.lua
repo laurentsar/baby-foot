@@ -86,32 +86,73 @@ end
 -- puissance pour l'atteindre. extraSlots = emplacements de joueurs bonus gagnés
 -- par les renaissances (voir Config.extraSlotsFromRebirths), répartis sur les
 -- 4 bases.
-function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult: number?, extraSlots: number?)
+-- worldIndex = monde débloqué (Config.Worlds) : il ne change que l'habillage
+-- (sol, murs, couleur du but). Le multiplicateur d'argent, lui, est appliqué
+-- côté serveur — un décor ne doit jamais porter une règle de jeu.
+function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult: number?, extraSlots: number?,
+	worldIndex: number?)
 	local F = Config.Field
 	local mult = sizeMult or 1
 	local length = F.length * mult
 	local width = F.width * mult
 	local origin = originOverride or F.origin
+	local world = Config.world(worldIndex)
+	local GROUND = world.ground or GREEN
+	local WALL = world.wall or WOOD
+	local ACCENT = world.accent or NEON
 
 	local root = Instance.new("Model")
 	root.Name = "BabyFoot"
 	root.Parent = workspace
 
 	-- Plateau du terrain
+	local pitchMaterial = world.groundMaterial or Enum.Material.Grass
 	part("Plateau", Vector3.new(width, 1, length),
-		CFrame.new(origin), GREEN, root, Enum.Material.Grass)
+		CFrame.new(origin), GROUND, root, pitchMaterial)
 
-	-- Lignes du milieu (déco)
-	part("LigneMilieu", Vector3.new(width, 1.1, 1),
-		CFrame.new(origin.X, origin.Y + 0.06, origin.Z),
-		Color3.fromRGB(240, 240, 240), root)
+	-- PELOUSE TONDUE : bandes alternées dans le sens de la longueur, comme sur un
+	-- vrai terrain. C'est le détail qui fait le plus pour l'œil, et il ne coûte
+	-- que 8 parts plates : les bandes sombres sont posées par-dessus le plateau,
+	-- les claires sont le plateau lui-même.
+	local STRIPES = 8
+	local stripeW = width / STRIPES
+	for i = 0, STRIPES - 1, 2 do
+		local x = origin.X - width / 2 + (i + 0.5) * stripeW
+		local band = part("Bande", Vector3.new(stripeW, 1.02, length),
+			CFrame.new(x, origin.Y + 0.01, origin.Z),
+			Color3.new(GROUND.R * 0.86, GROUND.G * 0.86, GROUND.B * 0.86), root, pitchMaterial)
+		band.CanCollide = false
+	end
+
+	-- MARQUAGES AU SOL (peinture, sans collision) : ligne médiane, rond central,
+	-- surface de réparation devant le but, ligne de but.
+	local LINE = Color3.fromRGB(242, 244, 248)
+	local function paint(name: string, size: Vector3, cf: CFrame)
+		local p = part(name, size, cf, LINE, root, Enum.Material.SmoothPlastic)
+		p.CanCollide = false
+		return p
+	end
+
+	paint("LigneMilieu", Vector3.new(width, 1.06, 1), CFrame.new(origin.X, origin.Y + 0.03, origin.Z))
+
+	-- Rond central : 16 segments d'arc. Un vrai cercle demanderait un mesh, et à
+	-- cette échelle 16 segments se lisent comme un rond parfait.
+	local circleR = math.min(width, length) * 0.11
+	for i = 0, 15 do
+		local a = (i / 16) * math.pi * 2
+		local seg = paint("RondCentral", Vector3.new(0.8, 1.06, circleR * 0.42),
+			CFrame.new(origin.X + math.sin(a) * circleR, origin.Y + 0.03, origin.Z + math.cos(a) * circleR)
+				* CFrame.Angles(0, -a, 0))
+		seg.Transparency = 0.05
+	end
+	paint("PointCentral", Vector3.new(1.6, 1.06, 1.6), CFrame.new(origin.X, origin.Y + 0.03, origin.Z))
 
 	-- Murs latéraux
 	local half = length / 2
 	part("MurGauche", Vector3.new(2, F.wallHeight, length),
-		CFrame.new(origin.X - width / 2 - 1, origin.Y + F.wallHeight / 2, origin.Z), WOOD, root)
+		CFrame.new(origin.X - width / 2 - 1, origin.Y + F.wallHeight / 2, origin.Z), WALL, root)
 	part("MurDroit", Vector3.new(2, F.wallHeight, length),
-		CFrame.new(origin.X + width / 2 + 1, origin.Y + F.wallHeight / 2, origin.Z), WOOD, root)
+		CFrame.new(origin.X + width / 2 + 1, origin.Y + F.wallHeight / 2, origin.Z), WALL, root)
 
 	-- Fond du terrain = LE BUT adverse (cible du x3). Il ne fait qu'une fraction
 	-- de la largeur : il faut viser, une balle qui arrive à côté ne marque pas.
@@ -119,7 +160,7 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 	local goalWidth = math.min(width * F.goalWidthRatio * (if bigGoal then Config.BigGoalMultiplier else 1),
 		width - 8)
 	local goal = part("But", Vector3.new(goalWidth, F.wallHeight + 4, F.goalDepth),
-		CFrame.new(origin.X, origin.Y + (F.wallHeight + 4) / 2, goalZ), NEON, root, Enum.Material.Neon)
+		CFrame.new(origin.X, origin.Y + (F.wallHeight + 4) / 2, goalZ), ACCENT, root, Enum.Material.Neon)
 	goal.Transparency = 0.35
 
 	-- Poteaux + fond plein de chaque côté : on voit où il faut mettre la balle.
@@ -130,7 +171,47 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 		local sidePanel = (width - goalWidth) / 2
 		part("FondPlein", Vector3.new(sidePanel, F.wallHeight, F.goalDepth),
 			CFrame.new(origin.X + side * (goalWidth + sidePanel) / 2,
-				origin.Y + F.wallHeight / 2, goalZ), WOOD, root)
+				origin.Y + F.wallHeight / 2, goalZ), WALL, root)
+	end
+
+	-- Ligne de but + surface de réparation : c'est ce qui fait lire le fond comme
+	-- un vrai but et pas comme un simple mur lumineux.
+	local goalLineZ = goalZ - F.goalDepth / 2
+	paint("LigneDeBut", Vector3.new(width, 1.06, 1), CFrame.new(origin.X, origin.Y + 0.03, goalLineZ))
+	local boxW = math.min(goalWidth * 2.1, width - 6)
+	local boxD = math.min(length * 0.16, 30)
+	paint("SurfaceCote", Vector3.new(0.9, 1.06, boxD),
+		CFrame.new(origin.X - boxW / 2, origin.Y + 0.03, goalLineZ - boxD / 2))
+	paint("SurfaceCote", Vector3.new(0.9, 1.06, boxD),
+		CFrame.new(origin.X + boxW / 2, origin.Y + 0.03, goalLineZ - boxD / 2))
+	paint("SurfaceFront", Vector3.new(boxW, 1.06, 0.9),
+		CFrame.new(origin.X, origin.Y + 0.03, goalLineZ - boxD))
+
+	-- FILET DU BUT : une grille de fils fins tendue au fond de la cage. Rien de
+	-- physique (la balle est simulée), mais sans filet le but ressemblait à une
+	-- vitre bleue. Nombre de fils FIXE : la cage peut doubler de largeur avec le
+	-- pass Grand Terrain, on ne veut pas doubler le nombre de parts avec elle.
+	do
+		local netFolder = Instance.new("Folder")
+		netFolder.Name = "Filet"
+		netFolder.Parent = root
+		local netZ = goalZ + F.goalDepth / 2 - 0.6
+		local netH = F.wallHeight + 2
+		local netY = origin.Y + netH / 2
+		for i = 1, 9 do
+			local x = origin.X + (i / 10 - 0.5) * goalWidth
+			local wire = part("FilVertical", Vector3.new(0.18, netH, 0.18),
+				CFrame.new(x, netY, netZ), Color3.fromRGB(238, 240, 245), netFolder)
+			wire.CanCollide = false
+			wire.Transparency = 0.25
+		end
+		for i = 1, 5 do
+			local y = origin.Y + (i / 6) * netH
+			local wire = part("FilHorizontal", Vector3.new(goalWidth, 0.18, 0.18),
+				CFrame.new(origin.X, y, netZ), Color3.fromRGB(238, 240, 245), netFolder)
+			wire.CanCollide = false
+			wire.Transparency = 0.25
+		end
 	end
 
 	-- Mur derrière ton point de tir, PERCÉ au milieu : c'est par ce trou qu'on
@@ -237,6 +318,7 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 		barrierZ = barrierZ,
 		crowd = {},
 		bases = Config.basesWithExtra(extraSlots),
+		world = world,
 	}
 
 	FieldBuilder.buildBases(field)
@@ -280,6 +362,18 @@ function FieldBuilder.buildPlotBoundary(field, origin: Vector3)
 	local h = 70
 	local midZ = (farZ + nearZ) / 2
 	local spanZ = farZ - nearZ
+
+	-- SOL DU PLOT. La Baseplate du projet ne fait que 400 studs et ne couvre donc
+	-- que le premier plot : à partir du deuxième, tout ce qui n'était pas un
+	-- élément construit (les abords du parvis, les côtés de l'allée, le pourtour
+	-- du gym) était un trou, et on tombait dans le vide. Une seule dalle par plot
+	-- suffit, posée juste sous les surfaces construites.
+	local ground = part("SolPlot", Vector3.new(halfX * 2, 2, spanZ),
+		CFrame.new(origin.X, origin.Y - 1.5, midZ),
+		(field.world and field.world.ground) or Color3.fromRGB(48, 92, 52), folder,
+		(field.world and field.world.groundMaterial) or Enum.Material.Grass)
+	ground.CanCollide = true
+
 	wall("PlotGauche", Vector3.new(1, h, spanZ), CFrame.new(origin.X - halfX, origin.Y + h / 2, midZ))
 	wall("PlotDroit", Vector3.new(1, h, spanZ), CFrame.new(origin.X + halfX, origin.Y + h / 2, midZ))
 	wall("PlotFond", Vector3.new(halfX * 2, h, 1), CFrame.new(origin.X, origin.Y + h / 2, farZ))
@@ -309,6 +403,13 @@ function FieldBuilder.buildDecor(field)
 				CFrame.new(x, origin.Y + h / 2, origin.Z), Color3.fromRGB(70, 74, 88),
 				folder, Enum.Material.Concrete)
 
+			-- Nez de marche clair : sans lui, les trois gradins se lisent comme un
+			-- seul bloc gris depuis le point de tir.
+			local nose = part("NezDeMarche", Vector3.new(7.4, 0.5, length + 20),
+				CFrame.new(x, origin.Y + h + 0.2, origin.Z), Color3.fromRGB(150, 155, 172),
+				folder, Enum.Material.Concrete)
+			nose.CanCollide = false
+
 			local seats = Config.Crowd.seatsPerTier
 			for i = 0, seats - 1 do
 				local z = origin.Z - (length + 12) / 2 + (i + 0.5) * (length + 12) / seats
@@ -330,6 +431,28 @@ function FieldBuilder.buildDecor(field)
 				fan.PrimaryPart = body
 				table.insert(field.crowd, fan)
 			end
+		end
+	end
+
+	-- TOITURE DE TRIBUNE : un auvent au-dessus du dernier gradin, porté par deux
+	-- poteaux. C'est ce qui donne au stade sa silhouette — sans toit, les gradins
+	-- ressemblent à des marches posées dans un champ.
+	for _, side in { -1, 1 } do
+		local xOuter = origin.X + side * (width / 2 + 7 + 2 * 7)
+		local roofY = origin.Y + 26
+		local roof = part("Toiture", Vector3.new(26, 1, length + 24),
+			CFrame.new(xOuter + side * 4, roofY, origin.Z), Color3.fromRGB(38, 42, 54),
+			folder, Enum.Material.Metal)
+		roof.CanCollide = false
+		local edge = part("BordToiture", Vector3.new(1.4, 1.6, length + 24),
+			CFrame.new(xOuter + side * 16, roofY - 0.8, origin.Z), Color3.fromRGB(255, 210, 60),
+			folder, Enum.Material.Metal)
+		edge.CanCollide = false
+		for _, sz in { -1, 1 } do
+			local pillar = part("PoteauToiture", Vector3.new(1.6, 26, 1.6),
+				CFrame.new(xOuter + side * 15, origin.Y + 13, origin.Z + sz * (length / 2 + 6)),
+				Color3.fromRGB(48, 52, 66), folder, Enum.Material.Metal)
+			pillar.CanCollide = false
 		end
 	end
 
@@ -769,6 +892,27 @@ function FieldBuilder.knockDown(fig: BasePart)
 	setVisible(fig, false)
 end
 
+-- DÉFI DU LOIN : le terrain se vide. On masque les figurines, les socles et le
+-- fond du but — c'est le « baby-foot infini » annoncé, et surtout il ne doit
+-- rien rester à toucher pendant un tir de défi.
+--
+-- On ne DÉTRUIT rien : la composition de l'équipe est intacte, elle est
+-- simplement invisible le temps du défi, et un simple placeSquad la remet en
+-- place à la fin (c'est ce que fait le serveur).
+function FieldBuilder.setChallengeMode(field, on: boolean)
+	if not field or not field.figuresFolder then return end
+	for _, inst in field.figuresFolder:GetChildren() do
+		if inst:IsA("BasePart") and inst.Name == "Figure" then
+			setVisible(inst, not on)
+		elseif inst:IsA("BasePart") and inst.Name == "Emplacement" then
+			inst.Transparency = if on then 1 else 0.2
+		end
+	end
+	if field.goalPart then
+		field.goalPart.Transparency = if on then 0.95 else 0.35
+	end
+end
+
 -- Relève les figurines couchées. Ne recrée rien : à utiliser après un tir, quand
 -- la composition de l'équipe n'a pas bougé (sinon, placeSquad).
 function FieldBuilder.standUp(field)
@@ -850,30 +994,96 @@ function FieldBuilder.buildEntrance(originOverride: Vector3?)
 		CFrame.new(o.X, o.Y - 0.3, plazaZ + E.plazaOffset / 2 - 10),
 		Color3.fromRGB(60, 130, 60), model, Enum.Material.Grass)
 
-	local function tree(x: number, z: number, scale: number)
-		local trunk = part("Tronc", Vector3.new(2.4 * scale, 12 * scale, 2.4 * scale),
-			CFrame.new(x, o.Y + 6 * scale, z), Color3.fromRGB(95, 62, 35), model, Enum.Material.Wood)
+	-- ARBRES. Le feuillage n'est plus une pile de trois boules centrées (qui
+	-- donnait un sapin de dessin animé) : quatre boules décalées et de tailles
+	-- différentes, plus une ombre portée au sol. À distance, c'est la silhouette
+	-- irrégulière qui fait « arbre ».
+	local function tree(x: number, z: number, scale: number, seed: number)
+		local rng = Random.new(seed)
+		local trunk = part("Tronc", Vector3.new(2.2 * scale, 13 * scale, 2.2 * scale),
+			CFrame.new(x, o.Y + 6.5 * scale, z) * CFrame.Angles(math.rad(rng:NextNumber(-3, 3)), 0, math.rad(rng:NextNumber(-3, 3))),
+			Color3.fromRGB(86, 58, 34), model, Enum.Material.Wood)
 		trunk.CanCollide = false
-		for i = 0, 2 do
-			local foliage = part("Feuillage", Vector3.new(11 * scale - i * 2.2, 9 * scale - i * 1.8, 11 * scale - i * 2.2),
-				CFrame.new(x, o.Y + (11 + i * 3.4) * scale, z),
-				Color3.fromRGB(40 + i * 12, 110 + i * 18, 45), model, Enum.Material.Grass)
+
+		local clumps = {
+			{ dx = 0,    dy = 12.5, dz = 0,    r = 11.5 },
+			{ dx = -3.4, dy = 10.5, dz = 1.8,  r = 8.5 },
+			{ dx = 3.2,  dy = 11.2, dz = -1.6, r = 8.0 },
+			{ dx = 0.4,  dy = 15.4, dz = 0.6,  r = 7.4 },
+		}
+		for i, c in clumps do
+			local tint = rng:NextNumber(-12, 12)
+			local foliage = part("Feuillage",
+				Vector3.new(c.r * scale, c.r * 0.86 * scale, c.r * scale),
+				CFrame.new(x + c.dx * scale, o.Y + c.dy * scale, z + c.dz * scale),
+				Color3.fromRGB(math.clamp(46 + tint, 20, 90), math.clamp(112 + i * 9 + tint, 60, 190), math.clamp(48 + tint, 20, 90)),
+				model, Enum.Material.Grass)
 			foliage.Shape = Enum.PartType.Ball
 			foliage.CanCollide = false
 		end
+
+		-- Ombre peinte : le CastShadow est coupé partout (coûteux au téléphone),
+		-- un disque sombre au sol suffit à ancrer l'arbre dans le décor.
+		local shade = part("Ombre", Vector3.new(0.15, 12 * scale, 12 * scale),
+			CFrame.new(x, o.Y + 0.36, z) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(38, 78, 40), model, Enum.Material.SmoothPlastic)
+		shade.Shape = Enum.PartType.Cylinder
+		shade.CanCollide = false
+		shade.Transparency = 0.55
+	end
+
+	-- Buissons et cailloux : de quoi casser la pelouse plate autour du parvis.
+	local function bush(x: number, z: number, scale: number)
+		for i = 0, 2 do
+			local b = part("Buisson", Vector3.new(4.2 * scale - i, 3 * scale - i * 0.6, 4.2 * scale - i),
+				CFrame.new(x + (i - 1) * 1.8 * scale, o.Y + 1.2 * scale, z + (i % 2) * 1.2 * scale),
+				Color3.fromRGB(52, 104 + i * 10, 54), model, Enum.Material.Grass)
+			b.Shape = Enum.PartType.Ball
+			b.CanCollide = false
+		end
+	end
+
+	-- Lampadaires le long de l'allée : ils donnent l'échelle et éclairent le
+	-- chemin le soir (ClockTime 20 côté projet).
+	local function lamp(x: number, z: number)
+		local pole = part("Lampadaire", Vector3.new(0.8, 16, 0.8),
+			CFrame.new(x, o.Y + 8, z), Color3.fromRGB(38, 40, 52), model, Enum.Material.Metal)
+		pole.CanCollide = false
+		local bulb = part("Ampoule", Vector3.new(2.2, 2.2, 2.2),
+			CFrame.new(x, o.Y + 16.4, z), Color3.fromRGB(255, 236, 190), model, Enum.Material.Neon)
+		bulb.Shape = Enum.PartType.Ball
+		bulb.CanCollide = false
+		local light = Instance.new("PointLight")
+		light.Brightness = 1.6
+		light.Range = 26
+		light.Color = Color3.fromRGB(255, 226, 170)
+		light.Shadows = false
+		light.Parent = bulb
 	end
 
 	for i = 0, E.trees - 1 do
 		local z = plazaZ + 14 + i * (pathLen - 10) / math.max(1, E.trees - 1)
 		local scale = 0.85 + ((i % 3) * 0.15)
-		tree(o.X - E.pathWidth / 2 - 10, z, scale)
-		tree(o.X + E.pathWidth / 2 + 10, z, scale)
+		tree(o.X - E.pathWidth / 2 - 10, z, scale, i * 7 + 1)
+		tree(o.X + E.pathWidth / 2 + 12, z, scale, i * 7 + 2)
+		-- Un lampadaire une fois sur deux, en bord d'allée.
+		if i % 2 == 0 then
+			lamp(o.X - E.pathWidth / 2 - 2.5, z)
+			lamp(o.X + E.pathWidth / 2 + 2.5, z)
+		else
+			bush(o.X - E.pathWidth / 2 - 5, z + 4, 1)
+			bush(o.X + E.pathWidth / 2 + 5, z - 4, 1.1)
+		end
 	end
 
 	-- Quelques arbres dispersés derrière le parvis, pour fermer le décor.
 	for i = 0, 5 do
 		local side = if i % 2 == 0 then -1 else 1
-		tree(o.X + side * (18 + (i % 3) * 13), plazaZ - 16 - (i % 3) * 12, 1 + (i % 2) * 0.2)
+		tree(o.X + side * (18 + (i % 3) * 13), plazaZ - 16 - (i % 3) * 12, 1 + (i % 2) * 0.2, 100 + i)
+	end
+	for i = 0, 3 do
+		local side = if i % 2 == 0 then -1 else 1
+		bush(o.X + side * (E.plazaSize / 2 + 6), plazaZ - 10 + i * 9, 1 + (i % 2) * 0.3)
 	end
 
 	-- Classement mondial visible dès l'arrivée, à côté du parvis : le panneau du

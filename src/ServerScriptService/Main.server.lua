@@ -36,6 +36,10 @@ local rAutoRoll = Remotes.get("AutoRoll")
 local rGift = Remotes.get("Gift")
 local rAdmin = Remotes.get("Admin")
 local rRoster = Remotes.get("Roster")
+local rUsePotion = Remotes.get("UsePotion")
+local rTutorial = Remotes.get("Tutorial")
+local rChallenge = Remotes.get("Challenge")
+local rReleaseSeen = Remotes.get("ReleaseSeen")
 
 -- Tirage des dés : un seul générateur serveur, jamais le client.
 local rng = Random.new()
@@ -61,6 +65,11 @@ type Session = {
 	spawnPos: Vector3?,
 	props: { Instance }?,      -- décor du plot (entrée, gym) à détruire au départ
 	board: SurfaceGui?,        -- panneau de classement du parvis
+	-- DÉFI DU LOIN : meilleure distance de la manche en cours (studs).
+	challengeBest: number,
+	-- Rythme de gain de la session, qui alimente les gains hors ligne.
+	sessionStart: number,
+	sessionEarned: number,
 }
 
 local sessions: { [Player]: Session } = {}
@@ -74,6 +83,18 @@ local SLOT_SPACING = 600
 -- Tous les panneaux de classement (stade + un parvis par plot) : le compte à
 -- rebours du coup de sifflet est écrit sur chacun.
 local boards: { SurfaceGui } = {}
+
+-------------------------------------------------------------------------------
+-- DÉFI DU LOIN : état partagé par tout le serveur.
+--
+-- Pendant la fenêtre, TOUS les joueurs tirent sur un terrain vide et le seul
+-- score est la distance. L'état vit ici, jamais côté client : un client modifié
+-- ne doit pas pouvoir s'ouvrir un défi permanent (ni annoncer une distance).
+-------------------------------------------------------------------------------
+local challengeActive = false
+local challengeEndsAt = 0
+local nextChallengeAt = os.clock() + Config.Challenge.interval
+local challengeAnnounced = false
 
 -------------------------------------------------------------------------------
 -- Game passes.
@@ -102,12 +123,39 @@ local function boostActive(): boolean
 	return os.clock() < boostUntil
 end
 
+-------------------------------------------------------------------------------
+-- EFFETS DE POTION.
+--
+-- Un effet est une simple date d'expiration en temps réel (os.time) : il
+-- continue donc de s'écouler pendant que le joueur est déconnecté. C'est
+-- volontaire — une potion de 30 minutes doit durer 30 minutes, pas être mise en
+-- pause et reprise trois jours plus tard.
+-------------------------------------------------------------------------------
+local function effectMult(session: Session, kind: string): number
+	local eff = session.data.effects and session.data.effects[kind]
+	if typeof(eff) ~= "table" then return 1 end
+	local expires = tonumber(eff.expires) or 0
+	if os.time() >= expires then return 1 end
+	return math.max(1, tonumber(eff.mult) or 1)
+end
+
+-- Temps restant d'un effet, pour l'affichage client (0 = pas d'effet).
+local function effectRemaining(session: Session, kind: string): number
+	local eff = session.data.effects and session.data.effects[kind]
+	if typeof(eff) ~= "table" then return 0 end
+	return math.max(0, (tonumber(eff.expires) or 0) - os.time())
+end
+
 local function moneyMultiplier(session: Session): number
 	local rb = Config.rebirthMultiplier(session.data.rebirths, session.passes.RebirthX2 == true)
 	local m = rb
 	if session.passes.VIP then m *= 2 end
 	if session.passes.MoneyX2 then m *= 2 end
 	if boostActive() then m *= Config.Match.boostMult end
+	-- Monde débloqué : x2 en Galactique, x4 en Radioactif (permanent).
+	m *= Config.worldMultiplier(session.data.world)
+	-- Potion d'Or.
+	m *= effectMult(session, "money")
 	return m
 end
 
@@ -193,6 +241,29 @@ local function buildStats(session: Session)
 		autoRollOwned = d.autoRollOwned == true,
 		autoRollOn = d.autoRoll == true,
 		autoRollCost = Config.AutoRoll.unlockCost,
+		-- CHANCE : niveau, effet courant et prix du niveau suivant.
+		luckLevel = d.luck or 0,
+		luckMax = Config.Luck.maxLevel,
+		luckMult = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true),
+		luckCost = (if (d.luck or 0) < Config.Luck.maxLevel
+			then math.floor(Config.luckCost(d.luck or 0) * costMult) else nil),
+		-- MONDE courant et suivant à débloquer.
+		world = { name = Config.world(d.world).name, mult = Config.worldMultiplier(d.world), index = d.world or 1 },
+		nextWorld = (function()
+			local nw = Config.nextWorld(d.world)
+			return nw and { name = nw.name, cost = nw.cost, mult = nw.moneyMult } or nil
+		end)(),
+		-- SAC À DOS + effets en cours.
+		potions = d.potions or {},
+		effects = {
+			money = { mult = effectMult(session, "money"), left = effectRemaining(session, "money") },
+			power = { mult = effectMult(session, "power"), left = effectRemaining(session, "power") },
+		},
+		tutorialDone = d.tutorialDone == true,
+		-- NOUVEAUTÉS : le client compare cette version à celle qu'il a déjà vue et
+		-- n'ouvre le pop-up qu'une fois par mise à jour.
+		releaseVersion = Config.Release.version,
+		releaseSeen = d.releaseSeen or "",
 		-- Contrôlé aussi à chaque commande côté serveur : ce champ ne sert qu'à
 		-- afficher ou non le panneau, il n'autorise rien par lui-même.
 		isAdmin = Config.isAdmin(session.userId),
@@ -228,6 +299,11 @@ local function repopulate(session: Session)
 	end
 	session.repopulatePending = false
 	FieldBuilder.placeSquad(session.field, squadOf(session), unlockedSlots(session))
+	-- Pendant le défi, le terrain doit rester vide : un lancer de dés ou un don
+	-- reçu au milieu de la manche ne doit pas faire réapparaître les figurines.
+	if challengeActive then
+		FieldBuilder.setChallengeMode(session.field, true)
+	end
 end
 
 -- INDEX : pour chaque nom déjà recruté, la MEILLEURE rareté possédée. Le client
@@ -332,9 +408,14 @@ end
 rChargeStart.OnServerEvent:Connect(function(player)
 	local session = sessions[player]
 	if not session then return end
-	if not allow(player, "chargeStart", 0.10) then return end
+	-- L'horodatage est posé AVANT le limiteur : un appui non enregistré laissait
+	-- l'horodatage du précédent en place, et le tir suivant se voyait comparé à
+	-- une durée d'appui qui n'avait rien à voir — un tir honnête pouvait alors
+	-- perdre son palier. L'affectation ne coûte rien, seul le flux est limité.
 	session.chargeStartAt = os.clock()
+	if not allow(player, "chargeStart", 0.05) then return end
 end)
+
 
 -- Corps du tir, partagé par le tir manuel et le tir automatique. `auto` = tir
 -- généré par le serveur : la charge n'est alors pas à vérifier, elle vient du
@@ -355,8 +436,12 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	-- erreur, le verrou expire tout seul au lieu d'empecher le joueur de tirer
 	-- pour le reste de la partie.
 	if now < session.shootingUntil then return end
+	-- Le défi est une manche à part : terrain vide, pas d'argent, un seul score
+	-- (la distance). On fige l'état au départ du tir, pour qu'une balle partie
+	-- pendant le défi finisse en balle de défi même si la fenêtre se ferme.
+	local challenge = challengeActive
 	session.lastShot = now
-	session.shootingUntil = now + Config.Shot.ballLifetime + 1
+	session.shootingUntil = now + (if challenge then Config.Challenge.maxFlight else Config.Shot.ballLifetime) + 1
 
 	local field = session.field
 	local S = Config.Shot
@@ -389,7 +474,13 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	local tier = Config.chargeTier(chargePct)
 	local speed = (S.baseSpeed + session.data.power * S.powerToSpeed) * tier.speedMult
 	if session.passes.BallSpeedX2 then speed *= 2 end
-	speed = math.min(speed, S.maxSpeed)
+	speed *= effectMult(session, "power")   -- potion de puissance
+	-- Pendant le défi, pas de plafond de vitesse : c'est une épreuve de distance,
+	-- un plafond ferait terminer tous les gros joueurs à égalité. Le vol reste
+	-- borné dans le temps par la décélération calculée plus bas.
+	if not challenge then
+		speed = math.min(speed, S.maxSpeed)
+	end
 
 	local rad = math.rad(angleDeg)
 	local dirX, dirZ = math.sin(rad), math.cos(rad)
@@ -405,6 +496,45 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	ball.CastShadow = false
 	ball.Position = field.shootPos
 	ball.Parent = field.root
+
+	-----------------------------------------------------------------------------
+	-- TIR DE DÉFI : baby-foot infini. Pas de figurines à toucher, pas de but, pas
+	-- de rebond sur les murs — la balle part tout droit et on mesure jusqu'où
+	-- elle roule. Aucun argent : le défi rapporte des potions, pas des revenus.
+	--
+	-- La décélération est relevée pour que même un tir énorme s'arrête dans la
+	-- fenêtre de vol (sinon la distance serait tronquée par le temps, et deux
+	-- puissances différentes donneraient le même score). Elle reste la même pour
+	-- toute la trajectoire, donc la distance croît strictement avec la puissance.
+	-----------------------------------------------------------------------------
+	if challenge then
+		local startPos = field.shootPos
+		local p = startPos
+		local decel = math.max(S.decel, speed / Config.Challenge.maxFlight)
+		local flightTime = 0
+		while flightTime < Config.Challenge.maxFlight and speed > 1 do
+			local dt = RunService.Heartbeat:Wait()
+			flightTime += dt
+			speed = math.max(0, speed - decel * dt)
+			p += Vector3.new(dirX * speed * dt, 0, dirZ * speed * dt)
+			ball.Position = Vector3.new(p.X, startPos.Y, p.Z)
+		end
+		local distance = (p - startPos).Magnitude
+		task.delay(0.15, function() ball:Destroy() end)
+		session.shootingUntil = 0   -- rien à relever : le terrain est déjà vide
+		if sessions[player] ~= session then return end
+		local record = distance > session.challengeBest
+		if record then session.challengeBest = distance end
+		rShotResult:FireClient(player, {
+			challenge = true,
+			distance = math.floor(distance),
+			bestDistance = math.floor(session.challengeBest),
+			record = record,
+			tier = tier.label,
+			hits = 0, money = 0, scored = false,
+		})
+		return
+	end
 
 	-- Le but est atteint au fond ET entre les poteaux. Le pass Grand Terrain
 	-- élargit le but (voir FieldBuilder.build), il ne rapproche plus le seuil.
@@ -431,56 +561,79 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	local scored = false
 	local elapsed = 0
 
-	while elapsed < S.ballLifetime and speed > 1 do
+	-- PAS DE SIMULATION SOUS-DÉCOUPÉ.
+	--
+	-- Une balle rapide avance de bien plus que son rayon de collision en une
+	-- frame : à 1400 studs/s et 60 fps, c'est 23 studs par pas pour une fenêtre
+	-- de contact de 12 — la balle traversait les figurines sans les voir, et
+	-- MONTER EN PUISSANCE FAISAIT BAISSER LES GAINS. Pire sur téléphone (30 fps),
+	-- où le seuil tombe à moitié moins de vitesse.
+	--
+	-- On découpe donc chaque frame en pas d'au plus un rayon de collision. Le
+	-- coût est proportionnel à la vitesse, pas au nombre de figurines : c'est le
+	-- test de distance qui est refait, pas la liste des cibles.
+	local finished = false
+	while elapsed < S.ballLifetime and speed > 1 and not finished do
 		local dt = RunService.Heartbeat:Wait()
 		elapsed += dt
-		speed = math.max(0, speed - S.decel * dt)
-		pos = pos + Vector3.new(dirX * speed * dt, 0, dirZ * speed * dt)
 
-		-- Rebond sur les murs latéraux.
-		local dx = pos.X - field.origin.X
-		if math.abs(dx) > halfW then
-			dirX = -dirX
-			pos = Vector3.new(field.origin.X + math.sign(dx) * halfW, pos.Y, pos.Z)
-		end
+		local sub = math.clamp(math.ceil(speed * dt / S.hitRadius), 1, 64)
+		local sdt = dt / sub
 
-		ball.Position = Vector3.new(pos.X, field.shootPos.Y, pos.Z)
+		for _ = 1, sub do
+			speed = math.max(0, speed - S.decel * sdt)
+			pos = pos + Vector3.new(dirX * speed * sdt, 0, dirZ * speed * sdt)
 
-		-- Collisions joueurs. `targets` ne contient que les "Figure" debout : les
-		-- socles d'emplacement vide ne comptent pas, sinon un terrain à moitié
-		-- vide rapporterait autant qu'une équipe complète.
-		local bx, bz = pos.X, pos.Z
-		for _, fig in targets do
-			if not hitSet[fig] and fig.Parent then
-				local fp = fig.Position
-				-- Distance au carré dans le plan : évite une racine carrée par
-				-- figurine et par frame (41 x 60/s et par balle en vol).
-				local dxf, dzf = fp.X - bx, fp.Z - bz
-				if dxf * dxf + dzf * dzf < radiusSq then
-					hitSet[fig] = true
-					hits += 1
-					local mult = tonumber(fig:GetAttribute("Mult")) or 1
-					hitValue += mult
-					local rarete = fig:GetAttribute("Rarete")
-					if typeof(rarete) == "string" and (best == nil or mult > best.mult) then
-						best = { mult = mult, name = rarete }
+			-- Rebond sur les murs latéraux.
+			local dx = pos.X - field.origin.X
+			if math.abs(dx) > halfW then
+				dirX = -dirX
+				pos = Vector3.new(field.origin.X + math.sign(dx) * halfW, pos.Y, pos.Z)
+			end
+
+			-- Collisions joueurs. `targets` ne contient que les "Figure" debout :
+			-- les socles d'emplacement vide ne comptent pas, sinon un terrain à
+			-- moitié vide rapporterait autant qu'une équipe complète.
+			local bx, bz = pos.X, pos.Z
+			for _, fig in targets do
+				if not hitSet[fig] and fig.Parent then
+					local fp = fig.Position
+					-- Distance au carré dans le plan : évite une racine carrée par
+					-- figurine et par pas.
+					local dxf, dzf = fp.X - bx, fp.Z - bz
+					if dxf * dxf + dzf * dzf < radiusSq then
+						hitSet[fig] = true
+						hits += 1
+						local mult = tonumber(fig:GetAttribute("Mult")) or 1
+						hitValue += mult
+						local rarete = fig:GetAttribute("Rarete")
+						if typeof(rarete) == "string" and (best == nil or mult > best.mult) then
+							best = { mult = mult, name = rarete }
+						end
+						-- Masquée immédiatement : un task.delay la laissait une
+						-- frame de plus dans la liste, le temps qu'une autre balle
+						-- la compte elle aussi.
+						FieldBuilder.knockDown(fig)
 					end
-					-- Masquée immédiatement : un task.delay la laissait une frame
-					-- de plus dans la liste, le temps qu'une autre balle la
-					-- compte elle aussi.
-					FieldBuilder.knockDown(fig)
 				end
 			end
+
+			-- But atteint ? Il faut arriver au fond ET entre les poteaux.
+			if pos.Z >= scoreZ then
+				if math.abs(pos.X - field.origin.X) <= field.goalHalfWidth then
+					scored = true
+				end
+				-- Dans les deux cas la balle est arrivée au fond : elle s'arrête.
+				finished = true
+				break
+			end
+
+			if speed <= 1 then break end
 		end
 
-		-- But atteint ? Il faut arriver au fond ET entre les poteaux.
-		if pos.Z >= scoreZ then
-			if math.abs(pos.X - field.origin.X) <= field.goalHalfWidth then
-				scored = true
-			end
-			-- Dans les deux cas la balle est arrivée au fond : elle s'arrête.
-			break
-		end
+		-- Une seule écriture de position par frame : les pas intermédiaires ne
+		-- servent qu'à la détection, les répliquer n'apporterait rien à l'image.
+		ball.Position = Vector3.new(pos.X, field.shootPos.Y, pos.Z)
 	end
 
 	-- Effet de but : le fond s'allume et le public bondit en ola.
@@ -516,6 +669,8 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 
 	session.data.money += money
 	session.data.totalEarned += money
+	-- Alimente le rythme de gain de la session, d'où sortent les gains hors ligne.
+	session.sessionEarned += money
 	updateLeaderstats(session, player)
 	pushStats(player)
 
@@ -568,6 +723,9 @@ rAutoShoot.OnServerEvent:Connect(function(player, on)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(on) ~= "boolean" then return end
+	-- Interrupteur : chaque appel reconstruit et renvoie la table de stats, il ne
+	-- doit donc pas pouvoir être appelé en boucle par un client modifié.
+	if not allow(player, "autoShoot", 0.25) then return end
 	if on and not autoShootUnlocked(session) then
 		rToast:FireClient(player, "Tir automatique verrouillé (passe Robux, ou "
 			.. Config.abbreviate(Config.AutoShoot.freeUnlockEarned) .. " $ gagnés)")
@@ -629,6 +787,10 @@ rGift.OnServerEvent:Connect(function(player, payload)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(payload) ~= "table" then return end
+	-- Le cooldown métier (Config.Gift.cooldown) n'est posé qu'après un don RÉUSSI :
+	-- sans ce limiteur, un client modifié spammait des dons invalides et chaque
+	-- appel renvoyait un message à deux joueurs.
+	if not allow(player, "gift", 0.5) then return end
 
 	local now = os.clock()
 	if now - session.lastGift < Config.Gift.cooldown then
@@ -805,6 +967,47 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 			d.money -= cost
 			d.valueLevel += 1
 		end
+	elseif kind == "luck" then
+		-- CHANCE : plafonnée à Config.Luck.maxLevel (x5). Le x20 ne s'obtient que
+		-- par la passe Robux, jamais par accumulation de niveaux.
+		local level = d.luck or 0
+		if level >= Config.Luck.maxLevel then
+			rToast:FireClient(player, string.format("Chance au maximum (x%s) — le x20 est une passe Robux.",
+				Config.luckFromLevel(Config.Luck.maxLevel)))
+		else
+			local cost = math.floor(Config.luckCost(level) * costMult)
+			if d.money >= cost then
+				d.money -= cost
+				d.luck = level + 1
+				rToast:FireClient(player, string.format("🍀 Chance x%s !", Config.luckFromLevel(d.luck)))
+			end
+		end
+	elseif kind == "world" then
+		-- MONDE SUIVANT : achat définitif, gardé à la renaissance. Le terrain est
+		-- reconstruit tout de suite — un monde qu'on ne verrait qu'à la prochaine
+		-- connexion ne ressemblerait pas à un achat.
+		local nw = Config.nextWorld(d.world)
+		if not nw then
+			rToast:FireClient(player, "Tu as déjà débloqué tous les mondes.")
+		elseif d.money < nw.cost then
+			rToast:FireClient(player, "Monde " .. nw.name .. " : il faut " .. Config.abbreviate(nw.cost) .. " $")
+		else
+			d.money -= nw.cost
+			d.world = (d.world or 1) + 1
+			if session.field and session.field.root then
+				session.field.root:Destroy()
+			end
+			local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+			session.field = FieldBuilder.build(session.passes.BigField == true, origin,
+				Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.world)
+			-- La reconstruction repart d'un terrain nu : on repose l'équipe tout de
+			-- suite, sans attendre le prochain tir.
+			session.repopulatePending = false
+			repopulate(session)
+			if challengeActive then FieldBuilder.setChallengeMode(session.field, true) end
+			rToast:FireClient(player, "🌍 Monde " .. nw.name .. " débloqué — argent x"
+				.. nw.moneyMult .. " en permanence !")
+		end
 	end
 
 	updateLeaderstats(session, player)
@@ -841,7 +1044,9 @@ local function performRoll(player: Player, silent: boolean): boolean
 	d.money -= cost
 	d.rolls += 1
 
-	local key = Config.rollRarity(rng, session.passes.LuckyDice == true)
+	-- Chance = amélioration en jeu (x5 max) x passe Chance x20, plafonnée.
+	local luck = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true)
+	local key = Config.rollRarity(rng, session.passes.LuckyDice == true, luck)
 	local card = { name = Config.cardNameFor(key, rng), rarity = key }
 	table.insert(d.cards, card)
 
@@ -881,6 +1086,7 @@ rAutoRoll.OnServerEvent:Connect(function(player, on)
 	local session = sessions[player]
 	if not session then return end
 	if typeof(on) ~= "boolean" then return end
+	if not allow(player, "autoRoll", 0.25) then return end
 	local d = session.data
 
 	if on and not d.autoRollOwned then
@@ -920,6 +1126,80 @@ task.spawn(function()
 	end
 end)
 
+-------------------------------------------------------------------------------
+-- SAC À DOS : les potions gagnées au défi du loin.
+--
+-- Une potion ne s'applique jamais toute seule : elle attend dans le sac que le
+-- joueur choisisse son moment. C'est tout l'intérêt d'un x3 argent de 30 min —
+-- le boire juste avant une grosse séance, pas au milieu d'un défi.
+-------------------------------------------------------------------------------
+local function grantPotion(session: Session, key: string, count: number?)
+	if not Config.potion(key) then return end
+	local d = session.data
+	d.potions = d.potions or {}
+	d.potions[key] = (tonumber(d.potions[key]) or 0) + (count or 1)
+end
+
+rUsePotion.OnServerEvent:Connect(function(player, key)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(key) ~= "string" then return end
+	if not allow(player, "potion", 0.3) then return end
+
+	local potion = Config.potion(key)
+	if not potion then return end
+
+	local d = session.data
+	d.potions = d.potions or {}
+	local have = tonumber(d.potions[key]) or 0
+	if have < 1 then
+		rToast:FireClient(player, "Tu n'as pas cette potion.")
+		return
+	end
+	d.potions[key] = if have - 1 > 0 then have - 1 else nil
+
+	-- Deux potions du même type n'empilent PAS leurs multiplicateurs (deux x3
+	-- feraient un x9) : on garde le meilleur des deux et on additionne la durée.
+	d.effects = d.effects or {}
+	local cur = d.effects[potion.kind]
+	local now = os.time()
+	local left = if typeof(cur) == "table" then math.max(0, (tonumber(cur.expires) or 0) - now) else 0
+	local curMult = if left > 0 and typeof(cur) == "table" then (tonumber(cur.mult) or 1) else 1
+	d.effects[potion.kind] = {
+		mult = math.max(curMult, potion.mult),
+		expires = now + left + potion.duration,
+	}
+
+	pushStats(player)
+	rToast:FireClient(player, "🧪 " .. potion.name .. " — " .. potion.desc)
+end)
+
+-------------------------------------------------------------------------------
+-- TUTORIEL : le client signale qu'il a été lu jusqu'au bout. Rien d'autre n'en
+-- dépend, mais il est stocké côté serveur pour ne pas revenir à chaque appareil.
+-------------------------------------------------------------------------------
+rTutorial.OnServerEvent:Connect(function(player)
+	local session = sessions[player]
+	if not session then return end
+	if not allow(player, "tutorial", 1) then return end
+	session.data.tutorialDone = true
+	pushStats(player)
+end)
+
+-------------------------------------------------------------------------------
+-- NOUVEAUTÉS LUES : on enregistre la version annoncée par le SERVEUR, jamais
+-- celle envoyée par le client — sinon un client modifié pourrait marquer comme
+-- lue une version qui n'existe pas et ne plus jamais voir d'annonce.
+-------------------------------------------------------------------------------
+rReleaseSeen.OnServerEvent:Connect(function(player)
+	local session = sessions[player]
+	if not session then return end
+	if not allow(player, "release", 1) then return end
+	session.data.releaseSeen = Config.Release.version
+	pushStats(player)
+end)
+
+-------------------------------------------------------------------------------
 -- RENAISSANCE : reset argent + upgrades, +1 renaissance (mult permanent).
 -------------------------------------------------------------------------------
 rRebirth.OnServerEvent:Connect(function(player)
@@ -955,10 +1235,14 @@ rRebirth.OnServerEvent:Connect(function(player)
 		session.field.root:Destroy()
 	end
 	local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+	-- La chance (d.luck) et le monde (d.world) ne sont PAS repris par la
+	-- renaissance : la chance sert la collection, qui survit elle aussi, et un
+	-- monde a été payé une fois pour toutes.
 	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
-		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session))
+		Config.fieldSizeMultiplier(d.rebirths), extraSlotsFor(session), d.world)
 
 	repopulate(session)
+	if challengeActive then FieldBuilder.setChallengeMode(session.field, true) end
 	updateLeaderstats(session, player)
 	pushStats(player)
 	pushCollection(player)
@@ -989,13 +1273,31 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passI
 	if not wasPurchased then return end
 	local session = sessions[player]
 	if not session then return end
+	local rebuildField = false
 	for key, pass in Config.Passes do
 		if pass.id == passId then
 			session.passes[key] = true
 			if key == "VIP" then nameTagBadge(player) end
+			-- Le but n'est élargi qu'à la construction du terrain : sans
+			-- reconstruction, « Grand Terrain » ne faisait rien jusqu'à la
+			-- prochaine renaissance ou reconnexion — un achat Robux sans effet
+			-- visible.
+			if key == "BigField" then rebuildField = true end
 		end
 	end
+	if rebuildField and session.field then
+		if session.field.root then session.field.root:Destroy() end
+		local origin = Config.Field.origin + Vector3.new(session.slot * SLOT_SPACING, 0, 0)
+		session.field = FieldBuilder.build(true, origin,
+			Config.fieldSizeMultiplier(session.data.rebirths), extraSlotsFor(session), session.data.world)
+		session.repopulatePending = false
+	end
 	repopulate(session)
+	-- Le terrain reconstruit repart avec ses figurines : si un défi est en cours,
+	-- il faut le revider tout de suite (repopulate les rend visibles).
+	if rebuildField and challengeActive and session.field then
+		FieldBuilder.setChallengeMode(session.field, true)
+	end
 	updateLeaderstats(session, player)
 	pushStats(player)
 	rToast:FireClient(player, "✅ Pass activé, merci !")
@@ -1056,6 +1358,19 @@ local function onPlayerAdded(player: Player)
 	-- la collection, exactement ce qui servait de base au calcul avant.
 	data.rolls = math.max(data.rolls or 0, #data.cards)
 
+	-- GAINS HORS LIGNE : rien n'est simulé, on reverse une fraction du rythme de
+	-- gain observé lors des sessions précédentes (cf. Config.offlineEarnings).
+	-- Calculé avant toute autre chose pour que l'argent soit déjà là quand le
+	-- premier pushStats part.
+	local offlineGain = 0
+	if (data.lastSeen or 0) > 0 then
+		offlineGain = Config.offlineEarnings(data.earnPerSec or 0, os.time() - (data.lastSeen or 0))
+		if offlineGain > 0 then
+			data.money += offlineGain
+			data.totalEarned += offlineGain
+		end
+	end
+
 	-- leaderstats
 	local ls = Instance.new("Folder")
 	ls.Name = "leaderstats"
@@ -1090,13 +1405,16 @@ local function onPlayerAdded(player: Player)
 		spawnPos = nil,
 		props = nil,
 		board = nil,
+		challengeBest = 0,
+		sessionStart = os.clock(),
+		sessionEarned = 0,
 	}
 	sessions[player] = session
 
 	refreshPasses(session, player)
 
 	session.field = FieldBuilder.build(session.passes.BigField == true, origin,
-		Config.fieldSizeMultiplier(data.rebirths), extraFromRebirths)
+		Config.fieldSizeMultiplier(data.rebirths), extraFromRebirths, data.world)
 	local training = FieldBuilder.buildTrainingArea(origin)
 	local entrance = FieldBuilder.buildEntrance(origin)
 	session.spawnPos = entrance.spawnPos
@@ -1125,14 +1443,41 @@ local function onPlayerAdded(player: Player)
 		end
 	end)
 
+	-- Arrivée en plein défi : le terrain doit être vide pour lui aussi, sinon il
+	-- tirerait dans des figurines pendant que les autres visent la distance.
+	if challengeActive then
+		FieldBuilder.setChallengeMode(session.field, true)
+	end
+
 	pushStats(player)
 	pushCollection(player)
+
+	if offlineGain > 0 then
+		local mins = math.floor(math.min(os.time() - (data.lastSeen or 0), Config.Offline.maxSeconds) / 60)
+		rToast:FireClient(player, string.format("💤 Absent %d min — tes joueurs ont continué : +%s $",
+			mins, Config.abbreviate(offlineGain)))
+	end
+end
+
+-- Horodate la sauvegarde et met à jour le rythme de gain : c'est ce couple
+-- (lastSeen + earnPerSec) qui produit les gains hors ligne à la reconnexion.
+-- Moyenne glissante plutôt que remplacement : une session de deux minutes ne
+-- doit pas effacer le rythme mesuré sur une heure de jeu.
+local function stampSession(session: Session)
+	local d = session.data
+	local elapsed = math.max(60, os.clock() - session.sessionStart)
+	local rate = session.sessionEarned / elapsed
+	if rate ~= rate then rate = 0 end
+	local prev = tonumber(d.earnPerSec) or 0
+	d.earnPerSec = if prev > 0 then prev * 0.5 + rate * 0.5 else rate
+	d.lastSeen = os.time()
 end
 
 local function onPlayerRemoving(player: Player)
 	local session = sessions[player]
 	if not session then return end
 	Leaderboard.submit(player.UserId, session.data.totalEarned, true)  -- départ : on force
+	stampSession(session)
 	DataStore.save(player.UserId, session.data, true)
 	DataStore.forget(player.UserId)
 	Leaderboard.forget(player.UserId)
@@ -1199,6 +1544,7 @@ pushRoster()
 
 game:BindToClose(function()
 	for player, session in sessions do
+		stampSession(session)
 		DataStore.save(player.UserId, session.data, true)  -- arrêt serveur : on force
 	end
 	task.wait(1)
@@ -1207,9 +1553,13 @@ end)
 -------------------------------------------------------------------------------
 -- Panneau + boucle de classement mondial.
 -------------------------------------------------------------------------------
+-- Le grand panneau est calé derrière le terrain LE PLUS GRAND possible : calculé
+-- sur la longueur de base, il se retrouvait planté au milieu du terrain du
+-- joueur du premier plot dès que ses renaissances l'avaient agrandi.
+local maxLength = Config.Field.length * (1 + Config.Rebirth.maxFieldGrowth)
 local gui = FieldBuilder.buildLeaderboardBoard({
 	origin = Config.Field.origin,
-	goalZ = Config.Field.origin.Z + Config.Field.length / 2 + Config.Field.goalDepth,
+	goalZ = Config.Field.origin.Z + maxLength / 2 + Config.Field.goalDepth,
 })
 Leaderboard.attach(gui)
 table.insert(boards, gui)
@@ -1263,11 +1613,115 @@ task.spawn(function()
 	end
 end)
 
+-------------------------------------------------------------------------------
+-- DÉFI DU LOIN : toutes les 10 minutes, une manche d'une minute.
+--
+-- Le terrain de chacun se vide (plus de figurines, plus de but) et le seul score
+-- est la distance du meilleur tir. À la fin, les trois premiers reçoivent une
+-- potion dans leur sac à dos. Aucun argent n'est distribué : le défi récompense
+-- l'adresse, il ne remplace pas le jeu.
+-------------------------------------------------------------------------------
+local function challengeScoreboard()
+	local scores = {}
+	for player, session in sessions do
+		if session.challengeBest > 0 then
+			table.insert(scores, { name = player.DisplayName, distance = math.floor(session.challengeBest) })
+		end
+	end
+	table.sort(scores, function(a, b) return a.distance > b.distance end)
+	-- Panneau de 5 lignes : au-delà, personne ne lit pendant qu'il vise.
+	while #scores > 5 do table.remove(scores) end
+	return scores
+end
+
+local function pushChallenge()
+	local target = if challengeActive then challengeEndsAt else nextChallengeAt
+	rChallenge:FireAllClients({
+		active = challengeActive,
+		left = math.max(0, math.ceil(target - os.clock())),
+		scores = challengeScoreboard(),
+	})
+end
+
+local function startChallenge()
+	challengeActive = true
+	challengeAnnounced = false
+	challengeEndsAt = os.clock() + Config.Challenge.duration
+	for player, session in sessions do
+		session.challengeBest = 0
+		FieldBuilder.setChallengeMode(session.field, true)
+		rToast:FireClient(player, string.format(
+			"🏹 DÉFI DU LOIN — %d s pour envoyer la balle le plus loin possible !", Config.Challenge.duration))
+	end
+	pushChallenge()
+end
+
+local function endChallenge()
+	challengeActive = false
+	nextChallengeAt = os.clock() + Config.Challenge.interval
+
+	local ranking = {}
+	for player, session in sessions do
+		if session.challengeBest > 0 then
+			table.insert(ranking, { player = player, session = session, dist = session.challengeBest })
+		end
+	end
+	table.sort(ranking, function(a, b) return a.dist > b.dist end)
+
+	local places = { "1er", "2e", "3e" }
+	for rank, entry in ranking do
+		local key = Config.Challenge.rewards[rank]
+		if not key then break end
+		local potion = Config.potion(key)
+		if potion then
+			grantPotion(entry.session, key, 1)
+			rToast:FireClient(entry.player, string.format("🏅 %s du défi (%d studs) — %s dans le sac à dos !",
+				places[rank] or (rank .. "e"), math.floor(entry.dist), potion.name))
+		end
+	end
+
+	for player, session in sessions do
+		FieldBuilder.setChallengeMode(session.field, false)
+		session.challengeBest = 0
+		-- Reconstruction directe et non `repopulate` : une balle de défi peut
+		-- encore être en vol, et repopulate reporterait le replacement à plus tard
+		-- (l'équipe resterait invisible). Une balle de défi ne lit aucune figurine,
+		-- reposer l'équipe sous elle ne fausse rien.
+		session.repopulatePending = false
+		FieldBuilder.placeSquad(session.field, squadOf(session), unlockedSlots(session))
+		pushStats(player)
+	end
+	pushChallenge()
+end
+
+task.spawn(function()
+	local C = Config.Challenge
+	while true do
+		local now = os.clock()
+		if challengeActive then
+			if now >= challengeEndsAt then
+				endChallenge()
+			end
+		elseif now >= nextChallengeAt then
+			startChallenge()
+		elseif not challengeAnnounced and now >= nextChallengeAt - C.warmup then
+			challengeAnnounced = true
+			for player in sessions do
+				rToast:FireClient(player, string.format(
+					"🏹 Défi du loin dans %d s — terrain vide, tir le plus long !", C.warmup))
+			end
+		end
+		pushChallenge()
+		task.wait(1)
+	end
+end)
+
 -- Sauvegarde périodique.
 task.spawn(function()
 	while true do
 		task.wait(120)
 		for player, session in sessions do
+			stampSession(session)
 			DataStore.save(player.UserId, session.data)
 		end
 	end

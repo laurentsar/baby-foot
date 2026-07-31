@@ -32,6 +32,11 @@ local rAutoRoll = Remotes.get("AutoRoll")
 local rGift = Remotes.get("Gift")
 local rAdmin = Remotes.get("Admin")
 local rRoster = Remotes.get("Roster")
+local rErase = Remotes.get("EraseData")
+local rUsePotion = Remotes.get("UsePotion")
+local rTutorial = Remotes.get("Tutorial")
+local rChallenge = Remotes.get("Challenge")
+local rReleaseSeen = Remotes.get("ReleaseSeen")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -54,6 +59,17 @@ local function make(class: string, props: { [string]: any }, parent: Instance?):
 	end
 	if parent then i.Parent = parent end
 	return i
+end
+
+-- Multiplicateurs : Config.abbreviate arrondit à l'entier en dessous de 1000
+-- (« x1.5 » devenait « x1 »), ce qui est juste pour de l'argent et faux pour une
+-- chance. On garde donc une décimale tant que le nombre est petit.
+local function fmtMult(n: number): string
+	if n ~= n then return "?" end
+	if n < 1000 then
+		return if n % 1 == 0 then tostring(math.floor(n)) else string.format("%.1f", n)
+	end
+	return Config.abbreviate(n)
 end
 
 local function button(text: string, color: Color3, parent: Instance): TextButton
@@ -472,14 +488,19 @@ upgradeButton("ball", 3)
 -- Plus de bouton « emplacement » : l'équipe est complète dès le départ, on
 -- améliore la valeur des joueurs et on remplace les Communs aux dés.
 shopHeader("⚽ ÉQUIPE", 4, GOLD)
-upgradeButton("value", 6)
-shopHeader("🔄 RENAISSANCE", 7, Color3.fromRGB(255, 120, 200))
+upgradeButton("value", 5)
+-- CHANCE : améliore ce que les dés sortent. Plafonnée à x5 côté serveur, le x20
+-- est une passe Robux à part (Config.LuckPassMultiplier).
+upgradeButton("luck", 6)
+shopHeader("🌍 MONDES", 7, Color3.fromRGB(150, 220, 150))
+upgradeButton("world", 8)
+shopHeader("🔄 RENAISSANCE", 9, Color3.fromRGB(255, 120, 200))
 local rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
-rebirthBtn.Size = UDim2.new(1, 0, 0, 54); rebirthBtn.TextSize = 16; rebirthBtn.LayoutOrder = 8
+rebirthBtn.Size = UDim2.new(1, 0, 0, 54); rebirthBtn.TextSize = 16; rebirthBtn.LayoutOrder = 10
 rebirthBtn.MouseButton1Click:Connect(function() rRebirth:FireServer() end)
 
-shopHeader("💎 GAME PASSES (Robux)", 9, Color3.fromRGB(180, 130, 255))
-local passOrder = 10
+shopHeader("💎 GAME PASSES (Robux)", 11, Color3.fromRGB(180, 130, 255))
+local passOrder = 12
 for key, pass in Config.Passes do
 	-- Une passe sans ID ne peut pas être achetée : on l'affiche grisée plutôt
 	-- que de laisser cliquer sur un achat qui échoue.
@@ -498,6 +519,18 @@ for key, pass in Config.Passes do
 	}, shopScroll)
 	passOrder += 1
 end
+
+-------------------------------------------------------------------------------
+-- DROIT À L'OUBLI (RGPD) : le serveur savait le faire depuis toujours, mais plus
+-- aucun bouton ne l'appelait — la fonctionnalité était devenue inatteignable.
+-- Deux clics : le premier prévient, le second (dans les 30 s) supprime.
+-------------------------------------------------------------------------------
+local eraseBtn = button("🗑 SUPPRIMER MES DONNÉES", Color3.fromRGB(180, 70, 70), shopScroll)
+eraseBtn.Size = UDim2.new(1, 0, 0, 40)
+eraseBtn.TextSize = 13
+eraseBtn.TextColor3 = Color3.fromRGB(255, 240, 240)
+eraseBtn.LayoutOrder = passOrder + 10
+eraseBtn.MouseButton1Click:Connect(function() rErase:FireServer() end)
 
 -------------------------------------------------------------------------------
 -- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.
@@ -670,9 +703,12 @@ local function rowButton(text: string, color: Color3, x: number, w: number): Tex
 	return b
 end
 
-local indexToggle = rowButton("📕 INDEX", Color3.fromRGB(90, 180, 235), 16, 98)
-local giftToggle = rowButton("🎁 DONS", Color3.fromRGB(235, 130, 170), 122, 98)
-local adminToggle = rowButton("🛠 ADMIN", Color3.fromRGB(200, 200, 210), 228, 98)
+-- Quatre boutons sur la rangée depuis l'ajout du sac à dos : ils tiennent dans
+-- la même largeur que les panneaux (320) pour ne pas déborder sur les stats.
+local indexToggle = rowButton("📕 INDEX", Color3.fromRGB(90, 180, 235), 16, 74)
+local giftToggle = rowButton("🎁 DONS", Color3.fromRGB(235, 130, 170), 96, 74)
+local bagToggle = rowButton("🎒 SAC", Color3.fromRGB(120, 210, 180), 176, 74)
+local adminToggle = rowButton("🛠 ADMIN", Color3.fromRGB(200, 200, 210), 256, 74)
 adminToggle.Visible = false   -- réaffiché seulement pour un UserId de Config.Admins
 
 -------------------------------------------------------------------------------
@@ -859,6 +895,335 @@ rRoster.OnClientEvent:Connect(function(list)
 end)
 
 -------------------------------------------------------------------------------
+-- SAC À DOS : les potions gagnées au défi du loin.
+--
+-- Le contenu vient toujours du serveur (stats.potions) : le bouton n'envoie
+-- qu'une intention de boire, c'est le serveur qui décompte et applique l'effet.
+-------------------------------------------------------------------------------
+local bagPanel = sidePanel(Color3.fromRGB(120, 210, 180))
+local bagScroll = panelScroll(bagPanel)
+local lastPotions: { [string]: number } = {}
+local lastEffects: { [string]: any } = {}
+
+local function bagLine(text: string, color: Color3, order: number, height: number)
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1,
+		Text = text, Font = Enum.Font.GothamBold, TextScaled = true,
+		TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+	}, bagScroll)
+end
+
+local function mmss(seconds: number): string
+	local s = math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", math.floor(s / 60), s % 60)
+end
+
+local function refreshBag()
+	bagScroll:ClearAllChildren()
+	make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, bagScroll)
+	local order = 1
+
+	bagLine("🧪 EFFETS EN COURS", GOLD, order, 22); order += 1
+	local anyEffect = false
+	for kind, label in { money = "x%s argent", power = "x%s puissance de tir" } do
+		local e = lastEffects[kind]
+		if e and (e.left or 0) > 0 then
+			anyEffect = true
+			bagLine(string.format(label, fmtMult(e.mult)) .. "  —  " .. mmss(e.left),
+				Color3.fromRGB(120, 220, 140), order, 20)
+			order += 1
+		end
+	end
+	if not anyEffect then
+		bagLine("Aucun effet actif.", Color3.fromRGB(180, 180, 200), order, 20); order += 1
+	end
+
+	bagLine("🎒 POTIONS", GOLD, order, 22); order += 1
+	local any = false
+	for _, potion in Config.Potions do
+		local n = lastPotions[potion.key] or 0
+		if n > 0 then
+			any = true
+			local b = button(string.format("%s x%d\n%s", potion.name, n, potion.desc),
+				potion.color, bagScroll)
+			b.Size = UDim2.new(1, 0, 0, 46)
+			b.TextSize = 12
+			b.LayoutOrder = order
+			b.MouseButton1Click:Connect(function() rUsePotion:FireServer(potion.key) end)
+			order += 1
+		end
+	end
+	if not any then
+		bagLine("Sac vide — finis dans les 3 premiers du défi du loin\n(toutes les 10 min) pour gagner des potions.",
+			Color3.fromRGB(180, 180, 200), order, 34)
+	end
+end
+
+bagToggle.MouseButton1Click:Connect(function()
+	refreshBag()
+	togglePanel(bagPanel)
+end)
+
+-------------------------------------------------------------------------------
+-- DÉFI DU LOIN : bandeau haut avec le compte à rebours et les meilleures
+-- distances. Tout vient du serveur, le client ne fait qu'afficher.
+-------------------------------------------------------------------------------
+local challengeFrame = make("Frame", {
+	Size = UDim2.fromOffset(380, 150),
+	Position = UDim2.new(0.5, -190, 0, 8),
+	BackgroundColor3 = BG, BackgroundTransparency = 0.15,
+	BorderSizePixel = 0, Visible = false,
+}, ui)
+corner(challengeFrame, 12)
+make("UIStroke", { Color = Color3.fromRGB(255, 150, 90), Thickness = 1.5, Transparency = 0.3 }, challengeFrame)
+
+local challengeTitle = make("TextLabel", {
+	Size = UDim2.new(1, -16, 0, 26), Position = UDim2.fromOffset(8, 6),
+	BackgroundTransparency = 1, Text = "🏹 DÉFI DU LOIN",
+	Font = Enum.Font.GothamBlack, TextScaled = true,
+	TextColor3 = Color3.fromRGB(255, 170, 90),
+}, challengeFrame)
+
+local challengeList = make("TextLabel", {
+	Size = UDim2.new(1, -16, 1, -40), Position = UDim2.fromOffset(8, 34),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBold,
+	TextSize = 15, TextColor3 = Color3.fromRGB(230, 232, 245),
+	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+}, challengeFrame)
+
+local challengeOn = false
+local myBestDistance = 0
+
+rChallenge.OnClientEvent:Connect(function(state)
+	local wasOn = challengeOn
+	challengeOn = state.active == true
+	if challengeOn and not wasOn then myBestDistance = 0 end
+	-- Hors défi, le bandeau ne s'affiche que dans la dernière minute : sinon il
+	-- occupe le haut de l'écran pendant neuf minutes pour ne rien dire.
+	challengeFrame.Visible = challengeOn or (state.left or 0) <= 60
+
+	if challengeOn then
+		challengeTitle.Text = string.format("🏹 DÉFI DU LOIN — %s", mmss(state.left or 0))
+		challengeTitle.TextColor3 = Color3.fromRGB(255, 170, 90)
+	else
+		challengeTitle.Text = string.format("🏹 Prochain défi dans %s", mmss(state.left or 0))
+		challengeTitle.TextColor3 = Color3.fromRGB(160, 200, 240)
+	end
+
+	local rows = {}
+	for i, s in state.scores or {} do
+		local medal = if i == 1 then "🥇" elseif i == 2 then "🥈" elseif i == 3 then "🥉" else (i .. ".")
+		table.insert(rows, string.format("%s %s — %s studs", medal, s.name, Config.abbreviate(s.distance)))
+	end
+	if #rows == 0 then
+		challengeList.Text = if challengeOn
+			then "Terrain vide : tire le plus loin possible !\nAucune distance pour l'instant."
+			else "Récompenses : 1er x3 argent 30 min,\n2e x2 puissance 10 min, 3e x2 puissance 5 min."
+	else
+		challengeList.Text = table.concat(rows, "\n")
+	end
+end)
+
+-------------------------------------------------------------------------------
+-- TUTORIEL : montré une fois (l'état est gardé côté serveur), rejouable par le
+-- bouton ❓. Sept écrans, un geste par écran — au-delà, plus personne ne lit.
+-------------------------------------------------------------------------------
+local TUTORIAL = {
+	{ "⚽ Bienvenue au Baby-Foot Power",
+	  "Tu tires depuis le bout d'un baby-foot géant. Chaque figurine touchée rapporte de l'argent, et la balle au fond du but multiplie le total par 3." },
+	{ "🏋️ 1. S'entraîner",
+	  "Maintiens S'ENTRAÎNER en bas à gauche. Chaque rep ajoute de la puissance, et la puissance, c'est la vitesse de ta balle : sans elle, tu n'atteins pas le fond." },
+	{ "🎯 2. Viser et tirer",
+	  "Tourne la caméra pour viser : tu tires là où tu regardes. Maintiens TIRER, la jauge fait des allers-retours — relâche dans le VERT FONCÉ pour le tir le plus fort." },
+	{ "🎲 3. Recruter",
+	  "RECRUTER lance les dés et ajoute un joueur à ta collection. Les meilleurs se posent tout seuls sur le terrain : plus ils sont rares, plus ils rapportent quand la balle les touche." },
+	{ "🍀 4. Chance et boutique",
+	  "Dans la boutique : haltères, balle, valeur des joueurs, et CHANCE, qui fait sortir mieux que du Commun aux dés (jusqu'à x5 ; la passe Robux monte à x20)." },
+	{ "🌍 5. Mondes et renaissance",
+	  "Renaître remet l'argent et le matériel à zéro contre un multiplicateur permanent. Les MONDES (Galactique, Radioactif), eux, s'achètent une fois et multiplient l'argent pour toujours." },
+	{ "🏹 6. Le défi du loin",
+	  "Toutes les 10 minutes, le terrain se vide : un seul but, envoyer la balle le plus loin possible. Les 3 premiers gagnent des potions, rangées dans ton SAC À DOS." },
+	{ "💤 7. Hors ligne",
+	  "Quand tu quittes le jeu, ton équipe continue de jouer : tu retrouves une partie de tes gains à la reconnexion. À toi de jouer !" },
+}
+
+local tutorialShown = false
+local tutorialStep = 1
+
+-- Déclarés ici et pas plus bas : la fermeture du tutoriel enchaîne sur le pop-up
+-- des nouveautés, et une fonction ne voit pas un local déclaré après elle.
+local pendingRelease = false
+local openRelease
+
+local tutorialDim = make("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+	BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false, ZIndex = 50,
+}, ui)
+
+local tutorialCard = make("Frame", {
+	Size = UDim2.fromOffset(460, 250), Position = UDim2.new(0.5, -230, 0.5, -125),
+	BackgroundColor3 = BG, BorderSizePixel = 0, ZIndex = 51,
+}, tutorialDim)
+corner(tutorialCard, 16)
+make("UIStroke", { Color = ACCENT, Thickness = 2, Transparency = 0.2 }, tutorialCard)
+
+local tutoTitle = make("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 36), Position = UDim2.fromOffset(16, 14),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBlack,
+	TextScaled = true, TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 52,
+}, tutorialCard)
+
+local tutoBody = make("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 120), Position = UDim2.fromOffset(16, 56),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.Gotham,
+	TextSize = 17, TextWrapped = true, TextColor3 = Color3.fromRGB(228, 230, 244),
+	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+	ZIndex = 52,
+}, tutorialCard)
+
+local tutoProgress = make("TextLabel", {
+	Size = UDim2.fromOffset(120, 30), Position = UDim2.fromOffset(16, 200),
+	BackgroundTransparency = 1, Text = "", Font = Enum.Font.GothamBold,
+	TextSize = 14, TextColor3 = Color3.fromRGB(170, 174, 195),
+	TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 52,
+}, tutorialCard)
+
+local tutoSkip = button("PASSER", Color3.fromRGB(90, 94, 112), tutorialCard)
+tutoSkip.Size = UDim2.fromOffset(110, 34)
+tutoSkip.Position = UDim2.fromOffset(200, 198)
+tutoSkip.TextSize = 14
+tutoSkip.TextColor3 = Color3.fromRGB(240, 240, 250)
+tutoSkip.ZIndex = 52
+
+local tutoNext = button("SUIVANT ▶", ACCENT, tutorialCard)
+tutoNext.Size = UDim2.fromOffset(120, 34)
+tutoNext.Position = UDim2.fromOffset(322, 198)
+tutoNext.TextSize = 14
+tutoNext.ZIndex = 52
+
+local function closeTutorial()
+	tutorialDim.Visible = false
+	rTutorial:FireServer()
+	-- Le tutoriel et les nouveautés ne s'affichent jamais l'un par-dessus l'autre :
+	-- le second attend la fermeture du premier.
+	if pendingRelease and openRelease then openRelease() end
+end
+
+local function showTutorialStep()
+	local step = TUTORIAL[tutorialStep]
+	if not step then closeTutorial() return end
+	tutoTitle.Text = step[1]
+	tutoBody.Text = step[2]
+	tutoProgress.Text = string.format("%d / %d", tutorialStep, #TUTORIAL)
+	tutoNext.Text = if tutorialStep >= #TUTORIAL then "C'EST PARTI !" else "SUIVANT ▶"
+end
+
+local function openTutorial()
+	tutorialStep = 1
+	showTutorialStep()
+	tutorialDim.Visible = true
+end
+
+tutoNext.MouseButton1Click:Connect(function()
+	tutorialStep += 1
+	if tutorialStep > #TUTORIAL then
+		closeTutorial()
+	else
+		showTutorialStep()
+	end
+end)
+tutoSkip.MouseButton1Click:Connect(closeTutorial)
+
+-- Bouton d'aide : rejouer le tutoriel à tout moment, à côté de la musique.
+local helpBtn = button("❓ AIDE", Color3.fromRGB(120, 160, 220), ui)
+helpBtn.Size = UDim2.fromOffset(80, 32)
+helpBtn.Position = UDim2.fromOffset(172, 16)
+helpBtn.TextSize = 14
+helpBtn.MouseButton1Click:Connect(openTutorial)
+
+-------------------------------------------------------------------------------
+-- NOUVEAUTÉS DE LA VERSION.
+--
+-- Ouvert automatiquement à la première connexion qui suit une mise à jour, puis
+-- plus jamais : le serveur retient la version lue dans la sauvegarde du joueur.
+-- Le bouton 📣 permet de le relire quand on veut.
+--
+-- Le contenu vient de Config.Release, partagé : il n'y a qu'UN endroit à
+-- modifier pour annoncer une nouvelle version (cf. Config.Release.notes).
+-------------------------------------------------------------------------------
+local releaseShown = false
+
+local releaseDim = make("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+	BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false, ZIndex = 60,
+}, ui)
+
+local releaseCard = make("Frame", {
+	Size = UDim2.fromOffset(500, 330), Position = UDim2.new(0.5, -250, 0.5, -165),
+	BackgroundColor3 = BG, BorderSizePixel = 0, ZIndex = 61,
+}, releaseDim)
+corner(releaseCard, 16)
+make("UIStroke", { Color = GOLD, Thickness = 2, Transparency = 0.2 }, releaseCard)
+
+make("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 34), Position = UDim2.fromOffset(16, 12),
+	BackgroundTransparency = 1, Text = Config.Release.title,
+	Font = Enum.Font.GothamBlack, TextScaled = true, TextColor3 = GOLD,
+	TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 62,
+}, releaseCard)
+
+make("TextLabel", {
+	Size = UDim2.new(1, -32, 0, 18), Position = UDim2.fromOffset(16, 46),
+	BackgroundTransparency = 1, Text = "version " .. Config.Release.version,
+	Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = Color3.fromRGB(160, 164, 185),
+	TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 62,
+}, releaseCard)
+
+local releaseScroll = make("ScrollingFrame", {
+	Size = UDim2.new(1, -32, 0, 200), Position = UDim2.fromOffset(16, 68),
+	BackgroundTransparency = 1, BorderSizePixel = 0,
+	CanvasSize = UDim2.new(0, 0, 0, 0), ScrollBarThickness = 6,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 62,
+}, releaseCard)
+make("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, releaseScroll)
+
+for i, note in Config.Release.notes do
+	make("TextLabel", {
+		Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, Text = "•  " .. note,
+		Font = Enum.Font.Gotham, TextSize = 15, TextWrapped = true,
+		TextColor3 = Color3.fromRGB(226, 229, 244),
+		TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = i, ZIndex = 62,
+	}, releaseScroll)
+end
+
+local releaseOk = button("SUPER !", ACCENT, releaseCard)
+releaseOk.Size = UDim2.fromOffset(160, 36)
+releaseOk.Position = UDim2.fromOffset(324, 280)
+releaseOk.TextSize = 15
+releaseOk.ZIndex = 62
+
+openRelease = function()
+	pendingRelease = false
+	releaseDim.Visible = true
+end
+
+releaseOk.MouseButton1Click:Connect(function()
+	releaseDim.Visible = false
+	-- On ne dit « lu » qu'ici : fermer par un autre chemin doit laisser l'annonce
+	-- revenir à la prochaine connexion.
+	rReleaseSeen:FireServer()
+end)
+
+local releaseBtn = button("📣", Color3.fromRGB(210, 160, 90), ui)
+releaseBtn.Size = UDim2.fromOffset(44, 32)
+releaseBtn.Position = UDim2.fromOffset(258, 16)
+releaseBtn.TextSize = 16
+releaseBtn.MouseButton1Click:Connect(openRelease)
+
+-------------------------------------------------------------------------------
 -- ADMIN : s'attribuer argent, puissance et cartes. Le bouton n'apparaît que
 -- pour les UserId de Config.Admins, et le serveur revérifie chaque commande.
 -------------------------------------------------------------------------------
@@ -985,6 +1350,21 @@ rDiceResult.OnClientEvent:Connect(function(res)
 end)
 
 rShotResult.OnClientEvent:Connect(function(res)
+	-- Tir de défi : un seul chiffre compte, la distance. Pas d'argent à annoncer.
+	if res.challenge then
+		myBestDistance = math.max(myBestDistance, res.bestDistance or 0)
+		if res.record then
+			buzz(0.7, 0.2)
+			toast(string.format("🏹 %s studs — nouveau record de la manche !", Config.abbreviate(res.distance)),
+				Color3.fromRGB(200, 120, 40))
+		else
+			toast(string.format("🏹 %s studs  (ton meilleur : %s)",
+				Config.abbreviate(res.distance), Config.abbreviate(res.bestDistance or 0)),
+				Color3.fromRGB(90, 90, 120))
+		end
+		return
+	end
+
 	local tier = res.tier and ("  •  " .. res.tier) or ""
 	if res.best then tier ..= "  •  " .. res.best end
 	if res.scored then
@@ -1000,6 +1380,85 @@ rShotResult.OnClientEvent:Connect(function(res)
 			Color3.fromRGB(120, 60, 60))
 	end
 end)
+
+-------------------------------------------------------------------------------
+-- AMBIANCE (ciel, brume, lumière).
+--
+-- Réglée CÔTÉ CLIENT et pas côté serveur : Lighting est unique pour toute la
+-- partie, alors que chaque joueur est dans SON monde. Un joueur passé en
+-- Radioactif doit voir sa brume verte sans la coller à ses voisins restés au
+-- stade — et une modification locale de Lighting ne part jamais au serveur.
+--
+-- Ce sont ces quatre réglages (atmosphère, bloom, rayons du soleil, étalonnage)
+-- qui font la différence entre « des blocs colorés » et un stade : ils coûtent
+-- un post-process, pas des parts.
+-------------------------------------------------------------------------------
+local Lighting = game:GetService("Lighting")
+
+local function lightingFx(class: string, name: string, props: { [string]: any }): any
+	local inst = Lighting:FindFirstChild(name)
+	if not inst then
+		inst = Instance.new(class)
+		;(inst :: any).Name = name
+		;(inst :: any).Parent = Lighting
+	end
+	for k, v in props do
+		(inst :: any)[k] = v
+	end
+	return inst
+end
+
+local AMBIANCE = {
+	-- Fin d'après-midi : ombres longues, ciel chaud, c'est l'heure la plus
+	-- flatteuse pour un stade.
+	[1] = { clock = 16.8, brightness = 2.6, ambient = Color3.fromRGB(92, 96, 112),
+		outdoor = Color3.fromRGB(122, 128, 146), fog = Color3.fromRGB(198, 212, 234),
+		density = 0.32, haze = 1.6, glare = 0.25, tint = Color3.fromRGB(255, 246, 232),
+		sunRays = 0.14, bloom = 0.7 },
+	-- Galactique : nuit claire, brume violette, floraison marquée.
+	[2] = { clock = 0.4, brightness = 1.6, ambient = Color3.fromRGB(58, 48, 96),
+		outdoor = Color3.fromRGB(70, 60, 118), fog = Color3.fromRGB(56, 40, 96),
+		density = 0.45, haze = 2.4, glare = 0.1, tint = Color3.fromRGB(226, 216, 255),
+		sunRays = 0.05, bloom = 1.3 },
+	-- Radioactif : jour laiteux, brume verte épaisse.
+	[3] = { clock = 11.5, brightness = 2.2, ambient = Color3.fromRGB(84, 104, 66),
+		outdoor = Color3.fromRGB(120, 148, 92), fog = Color3.fromRGB(150, 190, 110),
+		density = 0.55, haze = 3.0, glare = 0.35, tint = Color3.fromRGB(240, 255, 220),
+		sunRays = 0.2, bloom = 1.0 },
+}
+
+local currentAmbiance = -1
+
+local function applyAmbiance(worldIndex: number)
+	local a = AMBIANCE[worldIndex] or AMBIANCE[1]
+	if currentAmbiance == worldIndex then return end
+	currentAmbiance = worldIndex
+
+	Lighting.ClockTime = a.clock
+	Lighting.Brightness = a.brightness
+	Lighting.Ambient = a.ambient
+	Lighting.OutdoorAmbient = a.outdoor
+	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentSpecularScale = 0.4
+	Lighting.GlobalShadows = true
+	Lighting.ExposureCompensation = 0.1
+
+	lightingFx("Atmosphere", "AmbianceAtmosphere", {
+		Density = a.density, Offset = 0.1, Color = a.fog,
+		Decay = a.fog, Glare = a.glare, Haze = a.haze,
+	})
+	lightingFx("BloomEffect", "AmbianceBloom", {
+		Intensity = a.bloom, Size = 24, Threshold = 0.9,
+	})
+	lightingFx("SunRaysEffect", "AmbianceSunRays", {
+		Intensity = a.sunRays, Spread = 0.9,
+	})
+	lightingFx("ColorCorrectionEffect", "AmbianceColor", {
+		Brightness = 0, Contrast = 0.12, Saturation = 0.14, TintColor = a.tint,
+	})
+end
+
+applyAmbiance(1)
 
 -------------------------------------------------------------------------------
 -- MAJ des stats + libellés de la boutique.
@@ -1055,6 +1514,52 @@ rStats.OnClientEvent:Connect(function(s)
 		Config.abbreviate(s.nextRebirthMult), Config.abbreviate(s.rebirthCost))
 	rebirthBtn.BackgroundColor3 = s.money >= s.rebirthCost and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 80, 110)
 
+	-- CHANCE : le multiplicateur affiché est celui réellement appliqué au tirage
+	-- (amélioration x passe), pas seulement le niveau acheté.
+	local luckBtn = upgradeButtons.luck
+	if s.luckCost then
+		luckBtn.Text = string.format("🍀 Chance (niv. %d/%d) — act. x%s\n%s $",
+			s.luckLevel, s.luckMax, fmtMult(s.luckMult), Config.abbreviate(s.luckCost))
+		luckBtn.BackgroundColor3 = s.money >= s.luckCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(70, 130, 200)
+	else
+		luckBtn.Text = string.format("🍀 Chance MAX (niv. %d)\nact. x%s", s.luckLevel, fmtMult(s.luckMult))
+		luckBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+	end
+
+	-- MONDES : le monde courant et son multiplicateur, puis le prochain palier.
+	local worldBtn = upgradeButtons.world
+	if s.nextWorld then
+		worldBtn.Text = string.format("🌍 %s (x%s) → %s (x%s)\n%s $",
+			s.world.name, fmtMult(s.world.mult), s.nextWorld.name,
+			fmtMult(s.nextWorld.mult), Config.abbreviate(s.nextWorld.cost))
+		worldBtn.BackgroundColor3 = s.money >= s.nextWorld.cost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(80, 120, 90)
+	else
+		worldBtn.Text = string.format("🌍 %s (x%s)\nTous les mondes débloqués", s.world.name, fmtMult(s.world.mult))
+		worldBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+	end
+
+	-- SAC À DOS : contenu et effets, rafraîchis seulement si le panneau est ouvert.
+	lastPotions = s.potions or {}
+	lastEffects = s.effects or {}
+	if bagPanel.Visible then refreshBag() end
+
+	-- TUTORIEL : au premier passage seulement, et une seule fois par session.
+	if not tutorialShown and s.tutorialDone ~= true then
+		tutorialShown = true
+		openTutorial()
+	end
+
+	-- NOUVEAUTÉS : une seule fois par mise à jour. Si le tutoriel est à l'écran
+	-- (nouveau joueur), on attend qu'il soit fermé.
+	if not releaseShown and s.releaseVersion and s.releaseSeen ~= s.releaseVersion then
+		releaseShown = true
+		if tutorialDim.Visible then
+			pendingRelease = true
+		else
+			openRelease()
+		end
+	end
+
 	-- Tir automatique : le bouton n'apparaît qu'une fois débloqué (passe Robux ou
 	-- seuil d'argent cumulé), et son état vient du serveur, jamais du clic local.
 	autoOn = s.autoShootOn == true
@@ -1063,7 +1568,11 @@ rStats.OnClientEvent:Connect(function(s)
 	autoBtn.BackgroundColor3 = if autoOn then Color3.fromRGB(90, 220, 140) else Color3.fromRGB(120, 130, 150)
 
 	adminToggle.Visible = s.isAdmin == true
+
+	-- Ambiance du monde courant (ne fait rien si le monde n'a pas changé).
+	applyAmbiance((s.world and s.world.index) or 1)
 end)
+
 
 toast("⚽ Lance les 🎲 pour recruter tes joueurs, place-les sur les 4 bases (11 max), "
 	.. "puis vise à la caméra et relâche la jauge dans le vert foncé !",

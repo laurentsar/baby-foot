@@ -40,6 +40,17 @@ function DataModule.default()
 		autoShoot = false, -- interrupteur du tir automatique, conservé d'une session à l'autre
 		autoRollOwned = false, -- roulement auto des dés acheté (définitif)
 		autoRoll = false,      -- ...et allumé ou non
+		luck = 0,        -- niveau de l'amélioration Chance (cf. Config.Luck)
+		world = 1,       -- monde débloqué le plus haut (cf. Config.Worlds) — gardé à la renaissance
+		potions = {},    -- sac à dos : { [clé de potion] = nombre }
+		effects = {},    -- effets en cours : { [kind] = { mult = n, expires = <os.time> } }
+		tutorialDone = false,
+		-- Dernière version dont le joueur a vu les nouveautés (cf. Config.Release).
+		releaseSeen = "",
+		-- Hors ligne : date de dernière déconnexion et rythme de gain observé.
+		-- C'est ce couple, et rien d'autre, qui produit le gain hors ligne.
+		lastSeen = 0,
+		earnPerSec = 0,
 	}
 end
 
