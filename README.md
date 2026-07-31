@@ -96,17 +96,24 @@ des **renaissances** et grimpe au **classement mondial**.
 12. **Tutoriel & nouveautés** 📚 — 8 écrans à la première partie (rejouables par
    ❓), et un pop-up 📣 qui annonce les nouveautés à la première connexion suivant
    une mise à jour (une seule ligne à changer : `Config.Release`).
-13. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
+13. **Dons** 🎁 — offrir de l'argent ou une carte à quelqu'un du serveur.
+   Le montant se règle **au doigt** (−10 % / −1 % / +1 % / +10 %, puis 25 %,
+   50 %, TOUT) : le champ de saisie ouvrait le clavier du téléphone par-dessus
+   le jeu et le panneau se reconstruisait sous les doigts à chaque
+   arrivée/départ de joueur. Il reste disponible derrière un bouton ⌨️. Le
+   plafond par don est passé à **100 %** — à 50 %, il suffisait de donner deux
+   fois, il n'empêchait rien.
+14. **Coup de sifflet** 📣 — le grand écran affiche un compte à rebours de **30 s** ;
    à zéro, **tous les gains sont doublés pendant 10 s**, pour tout le serveur.
    Le cycle vit côté serveur, le panneau ne fait que l'afficher.
-14. **Mode spectateur** 👁 — on va regarder le terrain d'un autre joueur. Le
+15. **Mode spectateur** 👁 — on va regarder le terrain d'un autre joueur. Le
    serveur **déplace vraiment le personnage** jusqu'au parvis de la cible : avec
    `StreamingEnabled`, un plot à 600 studs n'est même pas chargé chez nous, une
    caméra seule ne montrerait rien. Un bandeau permanent ramène chez soi.
-15. **Mode AFK** 💤 — la puissance monte toute seule à **55 %** du rythme de
+16. **Mode AFK** 💤 — la puissance monte toute seule à **55 %** du rythme de
    l'entraînement à la main, avec le même haltère. Assez pour que s'absenter
    serve, pas assez pour rendre le bouton inutile.
-16. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
+17. **Classement mondial** 🏆 — **deux** panneaux alimentés par le même
    OrderedDataStore : un au parvis (visible dès l'arrivée) et le grand écran
    derrière le but. Une seule requête sert tous les panneaux.
 

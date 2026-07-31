@@ -620,7 +620,13 @@ eraseGo.ZIndex = 72
 
 -- Deux étapes, calquées sur le serveur (qui exige lui aussi deux appels dans sa
 -- fenêtre de confirmation) : rien n'est supprimé au premier clic.
+--
+-- Et un délai obligatoire entre les deux : sur téléphone, un double-tap un peu
+-- nerveux traversait les deux étapes d'un coup, et on se retrouvait éjecté sans
+-- avoir rien lu.
 local eraseStep = 1
+local eraseArmedAt = 0
+local ERASE_MIN_DELAY = 1.2
 
 local function showErase(step: number)
 	eraseStep = step
@@ -642,10 +648,15 @@ eraseCancel.MouseButton1Click:Connect(function()
 end)
 
 eraseGo.MouseButton1Click:Connect(function()
+	if eraseStep == 2 and os.clock() - eraseArmedAt < ERASE_MIN_DELAY then
+		-- Trop tôt : c'est le même geste qui continue, pas une décision.
+		return
+	end
 	-- Chaque clic envoie l'intention au serveur : le premier l'arme, le second
 	-- exécute. La fenêtre de 30 s côté serveur reste le garde-fou final.
 	rErase:FireServer()
 	if eraseStep == 1 then
+		eraseArmedAt = os.clock()
 		showErase(2)
 	else
 		eraseDim.Visible = false
@@ -1124,9 +1135,14 @@ local giftPanel = sidePanel(Color3.fromRGB(235, 130, 170))
 local giftScroll = panelScroll(giftPanel)
 local giftTarget: number? = nil
 local giftTargetName = ""
--- Argent connu du client, pour les boutons de don en pourcentage. Le serveur
--- rabote de toute façon : ce n'est qu'un confort de saisie.
+-- Argent connu du client, pour régler le montant d'un don. Le serveur rabote de
+-- toute façon : ce n'est qu'un confort de saisie.
 local lastMoney = 0
+-- Montant en cours de composition, et affichage ou non du champ de saisie. Ils
+-- vivent EN DEHORS de refreshGift : le panneau est reconstruit à chaque
+-- arrivée/départ de joueur, et le montant ne doit pas disparaître avec lui.
+local giftAmount = 0
+local giftTyping = false
 local roster: { any } = {}
 local lastCards: { any } = {}
 
@@ -1176,64 +1192,116 @@ refreshGift = function()
 		return
 	end
 
-	giftLine("💰 ARGENT (max " .. math.floor(Config.Gift.maxShare * 100) .. "% du tien)",
-		GOLD, order, 22)
-	order += 1
-	local amountBox = make("TextBox", {
-		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = PANEL,
-		TextColor3 = Color3.fromRGB(240, 240, 250), Font = Enum.Font.GothamBold,
-		TextScaled = true, PlaceholderText = "Montant…", Text = "",
-		ClearTextOnFocus = false, BorderSizePixel = 0, LayoutOrder = order,
-	}, giftScroll)
-	corner(amountBox, 8)
+	-- MONTANT DU DON : réglé SANS CLAVIER.
+	--
+	-- Le champ de saisie était le vrai problème. Sur téléphone, il ouvre le
+	-- clavier système par-dessus le jeu, et le panneau se reconstruit dès qu'un
+	-- joueur entre ou sort du serveur (rafraîchissement du roster) : le champ
+	-- focalisé disparaissait sous les doigts, ce qui donnait l'impression d'être
+	-- éjecté de la partie. Le montant vit donc maintenant dans une variable qui
+	-- SURVIT aux reconstructions, et se règle au doigt.
+	--
+	-- Le champ reste disponible, mais derrière un bouton : on ne tombe plus
+	-- dessus par accident.
+	giftLine(string.format("💰 ARGENT — tu as %s $", Config.abbreviate(lastMoney)), GOLD, order, 22)
 	order += 1
 
-	-- MONTANTS TOUT PRÊTS.
-	--
-	-- Le champ de saisie ouvrait le clavier du téléphone par-dessus le jeu, et
-	-- c'est en cherchant à le refermer qu'on finissait par sortir de la partie :
-	-- « je veux donner de l'argent, et ça me fait quitter ». Trois boutons de
-	-- pourcentage suffisent pour donner sans jamais taper une seule touche — le
-	-- champ reste là pour ceux qui veulent un montant précis.
-	local presets = make("Frame", {
-		Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = order,
+	local maxGift = math.floor(lastMoney * Config.Gift.maxShare)
+	giftAmount = math.clamp(math.floor(giftAmount), 0, math.max(0, maxGift))
+
+	local amountLabel = make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = PANEL, BackgroundTransparency = 0.2,
+		Text = string.format("À OFFRIR : %s $", Config.abbreviate(giftAmount)),
+		Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = Color3.fromRGB(255, 220, 140), LayoutOrder = order,
 	}, giftScroll)
+	corner(amountLabel, 8)
 	order += 1
-	local presetDefs = { { "10 %", 0.10 }, { "25 %", 0.25 }, { "MAX", Config.Gift.maxShare } }
-	for i, def in presetDefs do
-		local b = button(def[1] :: string, Color3.fromRGB(235, 170, 60), presets)
-		b.Size = UDim2.new(0.32, 0, 1, 0)
-		b.Position = UDim2.new((i - 1) * 0.34, 0, 0, 0)
-		b.TextSize = 13
-		b.MouseButton1Click:Connect(function()
-			-- Le serveur rabote de toute façon à Config.Gift.maxShare : ce calcul
-			-- n'est qu'un confort d'affichage, il n'autorise rien.
-			local amount = math.floor((lastMoney or 0) * (def[2] :: number))
-			if amount < Config.Gift.minMoney then
-				toast("Pas assez d'argent pour un don.", Color3.fromRGB(120, 60, 60))
-				return
-			end
-			rGift:FireServer({ to = giftTarget, kind = "money", amount = amount })
-		end)
+
+	-- Réglage fin : par pas de 1 % de ta fortune, dans les deux sens.
+	local function amountRow(defs, height: number)
+		local row = make("Frame", {
+			Size = UDim2.new(1, 0, 0, height), BackgroundTransparency = 1, LayoutOrder = order,
+		}, giftScroll)
+		order += 1
+		local n = #defs
+		for i, def in defs do
+			local b = button(def[1] :: string, def[3] :: Color3, row)
+			b.Size = UDim2.new(1 / n - 0.02, 0, 1, 0)
+			b.Position = UDim2.new((i - 1) / n, 0, 0, 0)
+			b.TextSize = 13
+			b.MouseButton1Click:Connect(function()
+				giftAmount = math.clamp(math.floor((def[2] :: any)(giftAmount, maxGift)), 0, maxGift)
+				refreshGift()
+			end)
+		end
 	end
 
-	local sendMoney = button("OFFRIR LE MONTANT SAISI", Color3.fromRGB(235, 170, 60), giftScroll)
-	sendMoney.Size = UDim2.new(1, 0, 0, 34)
-	sendMoney.TextSize = 13
+	local STEP = Color3.fromRGB(90, 110, 150)
+	local PICK = Color3.fromRGB(235, 170, 60)
+	amountRow({
+		{ "−10 %", function(v) return v - maxGift * 0.10 end, STEP },
+		{ "−1 %",  function(v) return v - maxGift * 0.01 end, STEP },
+		{ "+1 %",  function(v) return v + maxGift * 0.01 end, STEP },
+		{ "+10 %", function(v) return v + maxGift * 0.10 end, STEP },
+	}, 30)
+	amountRow({
+		{ "0", function() return 0 end, Color3.fromRGB(80, 84, 100) },
+		{ "25 %", function(_, m) return m * 0.25 end, PICK },
+		{ "50 %", function(_, m) return m * 0.5 end, PICK },
+		{ "TOUT", function(_, m) return m end, PICK },
+	}, 30)
+
+	local sendMoney = button(string.format("🎁 OFFRIR %s $ À %s", Config.abbreviate(giftAmount),
+		string.upper(giftTargetName)), Color3.fromRGB(235, 170, 60), giftScroll)
+	sendMoney.Size = UDim2.new(1, 0, 0, 38)
+	sendMoney.TextSize = 14
 	sendMoney.LayoutOrder = order
 	sendMoney.MouseButton1Click:Connect(function()
-		local amount = tonumber(amountBox.Text)
-		if not amount then
-			toast("Saisis un montant, ou utilise 10 % / 25 % / MAX.", Color3.fromRGB(120, 90, 60))
+		if giftAmount < Config.Gift.minMoney then
+			toast("Choisis d'abord un montant.", Color3.fromRGB(120, 90, 60))
 			return
 		end
-		rGift:FireServer({ to = giftTarget, kind = "money", amount = amount })
-		amountBox.Text = ""
-		-- Le clavier mobile reste ouvert tant qu'on ne lui dit pas de partir, et
-		-- c'est lui qui masquait le jeu après un don.
-		amountBox:ReleaseFocus()
+		rGift:FireServer({ to = giftTarget, kind = "money", amount = giftAmount })
+		giftAmount = 0
+		refreshGift()
 	end)
 	order += 1
+
+	-- Saisie précise, à la demande seulement.
+	if giftTyping then
+		local amountBox = make("TextBox", {
+			Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = PANEL,
+			TextColor3 = Color3.fromRGB(240, 240, 250), Font = Enum.Font.GothamBold,
+			TextScaled = true, PlaceholderText = "Montant exact…", Text = "",
+			ClearTextOnFocus = false, BorderSizePixel = 0, LayoutOrder = order,
+		}, giftScroll)
+		corner(amountBox, 8)
+		order += 1
+		-- On valide sur la touche Entrée : plus besoin de viser un bouton avec le
+		-- clavier ouvert par-dessus l'écran.
+		amountBox.FocusLost:Connect(function(enterPressed)
+			local typed = tonumber(amountBox.Text)
+			if typed then
+				giftAmount = math.clamp(math.floor(typed), 0, maxGift)
+			end
+			if enterPressed then
+				giftTyping = false
+				refreshGift()
+			end
+		end)
+	else
+		local typeBtn = button("⌨️ saisir un montant exact", Color3.fromRGB(90, 94, 112), giftScroll)
+		typeBtn.Size = UDim2.new(1, 0, 0, 26)
+		typeBtn.TextSize = 12
+		typeBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
+		typeBtn.LayoutOrder = order
+		typeBtn.MouseButton1Click:Connect(function()
+			giftTyping = true
+			refreshGift()
+		end)
+		order += 1
+	end
 
 	giftLine("👤 UN JOUEUR DE TA COLLECTION", GOLD, order, 22); order += 1
 	if #lastCards == 0 then

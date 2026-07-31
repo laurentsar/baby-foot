@@ -27,6 +27,7 @@ Config.Release = {
 		"📕 INDEX DES PETS : les 36 pets du jeu, groupés par monde et par œuf, avec ceux qui te manquent — tu sais enfin quel œuf ouvrir.",
 		"👁 MODE SPECTATEUR : va regarder le terrain d'un autre joueur, et reviens chez toi d'un appui sur le bandeau.",
 		"💤 MODE AFK : la puissance monte toute seule pendant que tu fais autre chose, à 55 % du rythme de l'entraînement à la main.",
+		"🎁 DONS : le montant se règle au doigt (−10 % / −1 % / +1 % / +10 %, puis 25 %, 50 %, TOUT) sans jamais ouvrir le clavier, et tu peux désormais offrir jusqu'à 100 % de ta fortune.",
 	},
 }
 
@@ -889,7 +890,11 @@ end
 -------------------------------------------------------------------------------
 Config.Gift = {
 	cooldown = 5,          -- délai serveur min entre deux dons du même joueur
-	maxShare = 0.5,        -- part max de son argent offerte en une fois
+	-- Part max de sa fortune offerte EN UNE FOIS. À 0,5, on ne pouvait pas offrir
+	-- la somme qu'on voulait... sauf en donnant deux fois de suite : le plafond
+	-- ne protégeait donc de rien, il ne faisait qu'agacer. Ce qui limite l'abus,
+	-- c'est le cooldown, et le fait qu'un don ne CRÉE jamais d'argent.
+	maxShare = 1,
 	minMoney = 1,
 }
 
