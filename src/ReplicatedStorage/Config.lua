@@ -22,7 +22,7 @@ Config.Release = {
 	version = "1.2.0",
 	title = "🐾 Mise à jour 1.2 — Pets, Œufs & Téléportation",
 	notes = {
-		"🥚 ŒUFS & PETS : une plateforme à côté du terrain, 3 œufs par monde (9 en tout), 36 pets à collectionner. Chaque pet multiplie l'argent — de ×1,1 à ×6000.",
+		"🥚 ŒUFS & PETS : une plateforme juste à côté du point d'apparition, 3 œufs par monde (9 en tout), 36 pets à collectionner. Chaque pet multiplie l'argent — de ×1,1 à ×6000, et l'œuf éclot sous tes yeux.",
 		"🐾 SAC À DOS : tes pets s'y rangent, un seul s'équipe à la fois et te suit en jeu. Bouton ⭐ ÉQUIPER LE MEILLEUR pour ne jamais se tromper.",
 		"🚀 TÉLÉPORTATION : va dans n'importe quel monde déjà débloqué depuis la boutique. Attention, c'est le monde OÙ TU ES qui donne son multiplicateur.",
 		"🌍 MONDES BEAUCOUP PLUS CHERS : Galactique 1 Sx, Radioactif 1 Oc — ce sont des paliers de fin de partie, plus des cases à cocher.",
@@ -360,9 +360,15 @@ end
 -------------------------------------------------------------------------------
 -- ŒUFS ET PETS.
 --
--- Trois œufs par monde, de plus en plus chers, sur la plateforme à côté du
--- terrain. Un œuf ne donne QUE des pets de son monde : c'est ce qui fait qu'on
--- veut débloquer le monde suivant, et pas seulement son multiplicateur.
+-- Trois œufs par monde, de plus en plus chers, sur la plateforme du parvis
+-- (juste à côté du point d'apparition). Un œuf ne donne QUE des pets de son
+-- monde : c'est ce qui fait qu'on veut débloquer le monde suivant, et pas
+-- seulement son multiplicateur.
+--
+-- Les prix sont calés sur le PRIX DU MONDE : le premier œuf d'un monde est
+-- abordable dès qu'on vient de le débloquer, le troisième reste un objectif.
+-- Trop bas (première version), les neuf œufs tombaient dans la foulée du monde
+-- et la collection de pets se terminait en une soirée.
 --
 -- Un pet multiplie l'argent gagné, et UN SEUL est équipé à la fois : sans cette
 -- règle, la collection de pets remplacerait toute la boucle du jeu (il suffirait
@@ -373,21 +379,21 @@ end
 Config.Eggs = {
 	-- MONDE 1 — STADE
 	{
-		{ key = "oeuf_herbe", name = "Œuf d'Herbe", cost = 25e3,
+		{ key = "oeuf_herbe", name = "Œuf d'Herbe", cost = 250e3,
 		  color = Color3.fromRGB(120, 200, 110), pets = {
 			{ key = "p_balle",    name = "Balle Rebondissante", mult = 1.1,  weight = 60, color = Color3.fromRGB(230, 230, 235) },
 			{ key = "p_chaton",   name = "Chaton du Stade",     mult = 1.25, weight = 30, color = Color3.fromRGB(235, 180, 120) },
 			{ key = "p_coq",      name = "Petit Coq",           mult = 1.5,  weight = 9,  color = Color3.fromRGB(230, 90, 70)   },
 			{ key = "p_coq_or",   name = "Coq d'Or",            mult = 2,    weight = 1,  color = Color3.fromRGB(255, 205, 60)  },
 		} },
-		{ key = "oeuf_cuir", name = "Œuf de Cuir", cost = 2e6,
+		{ key = "oeuf_cuir", name = "Œuf de Cuir", cost = 50e6,
 		  color = Color3.fromRGB(150, 110, 70), pets = {
 			{ key = "p_sifflet",  name = "Sifflet Vivant",      mult = 1.6,  weight = 55, color = Color3.fromRGB(200, 200, 210) },
 			{ key = "p_crampon",  name = "Crampon Fou",         mult = 2,    weight = 32, color = Color3.fromRGB(120, 130, 160) },
 			{ key = "p_mascotte", name = "Mascotte",            mult = 2.6,  weight = 11, color = Color3.fromRGB(240, 120, 180) },
 			{ key = "p_capitaine",name = "Capitaine",           mult = 3.5,  weight = 2,  color = Color3.fromRGB(255, 170, 40)  },
 		} },
-		{ key = "oeuf_trophee", name = "Œuf Trophée", cost = 150e6,
+		{ key = "oeuf_trophee", name = "Œuf Trophée", cost = 5e9,
 		  color = Color3.fromRGB(255, 200, 70), pets = {
 			{ key = "p_gant",     name = "Gant de Gardien",     mult = 3,    weight = 55, color = Color3.fromRGB(90, 200, 160)  },
 			{ key = "p_ballon_or",name = "Ballon d'Or",         mult = 4,    weight = 30, color = Color3.fromRGB(255, 215, 80)  },
@@ -397,21 +403,21 @@ Config.Eggs = {
 	},
 	-- MONDE 2 — GALACTIQUE
 	{
-		{ key = "oeuf_meteore", name = "Œuf Météore", cost = 50e9,
+		{ key = "oeuf_meteore", name = "Œuf Météore", cost = 5e18,
 		  color = Color3.fromRGB(120, 110, 150), pets = {
 			{ key = "p_cailloustre", name = "Caillou Astral",   mult = 10,   weight = 58, color = Color3.fromRGB(150, 145, 170) },
 			{ key = "p_satellite",   name = "Petit Satellite",  mult = 13,   weight = 30, color = Color3.fromRGB(180, 190, 220) },
 			{ key = "p_comete",      name = "Comète",           mult = 17,   weight = 10, color = Color3.fromRGB(120, 200, 255) },
 			{ key = "p_pulsar",      name = "Pulsar",           mult = 24,   weight = 2,  color = Color3.fromRGB(210, 130, 255) },
 		} },
-		{ key = "oeuf_nebuleuse", name = "Œuf Nébuleuse", cost = 5e12,
+		{ key = "oeuf_nebuleuse", name = "Œuf Nébuleuse", cost = 5e20,
 		  color = Color3.fromRGB(170, 100, 235), pets = {
 			{ key = "p_nuage",       name = "Nuage Stellaire",  mult = 26,   weight = 55, color = Color3.fromRGB(190, 150, 255) },
 			{ key = "p_alien",       name = "Petit Alien",      mult = 34,   weight = 31, color = Color3.fromRGB(120, 255, 170) },
 			{ key = "p_ovni",        name = "OVNI",             mult = 45,   weight = 12, color = Color3.fromRGB(160, 220, 255) },
 			{ key = "p_supernova",   name = "Supernova",        mult = 65,   weight = 2,  color = Color3.fromRGB(255, 200, 120) },
 		} },
-		{ key = "oeuf_trou_noir", name = "Œuf Trou Noir", cost = 500e12,
+		{ key = "oeuf_trou_noir", name = "Œuf Trou Noir", cost = 5e22,
 		  color = Color3.fromRGB(40, 30, 60), pets = {
 			{ key = "p_etoile",      name = "Étoile Naine",     mult = 70,   weight = 55, color = Color3.fromRGB(255, 240, 190) },
 			{ key = "p_orbite",      name = "Anneau d'Orbite",  mult = 95,   weight = 30, color = Color3.fromRGB(190, 190, 255) },
@@ -421,21 +427,21 @@ Config.Eggs = {
 	},
 	-- MONDE 3 — RADIOACTIF
 	{
-		{ key = "oeuf_fut", name = "Œuf Fût", cost = 1e17,
+		{ key = "oeuf_fut", name = "Œuf Fût", cost = 5e24,
 		  color = Color3.fromRGB(150, 200, 60), pets = {
 			{ key = "p_goutte",   name = "Goutte Verte",        mult = 220,  weight = 58, color = Color3.fromRGB(160, 255, 90)  },
 			{ key = "p_rat",      name = "Rat Mutant",          mult = 300,  weight = 30, color = Color3.fromRGB(140, 180, 110) },
 			{ key = "p_masque",   name = "Masque à Gaz",        mult = 420,  weight = 10, color = Color3.fromRGB(90, 130, 90)   },
 			{ key = "p_barril",   name = "Barril Instable",     mult = 600,  weight = 2,  color = Color3.fromRGB(210, 255, 80)  },
 		} },
-		{ key = "oeuf_reacteur", name = "Œuf Réacteur", cost = 1e19,
+		{ key = "oeuf_reacteur", name = "Œuf Réacteur", cost = 5e26,
 		  color = Color3.fromRGB(200, 255, 90), pets = {
 			{ key = "p_noyau",    name = "Noyau Chaud",         mult = 700,  weight = 55, color = Color3.fromRGB(255, 220, 90)  },
 			{ key = "p_isotope",  name = "Isotope",             mult = 950,  weight = 31, color = Color3.fromRGB(180, 255, 140) },
 			{ key = "p_geiger",   name = "Compteur Geiger",     mult = 1300, weight = 12, color = Color3.fromRGB(230, 230, 130) },
 			{ key = "p_fusion",   name = "Cœur de Fusion",      mult = 1900, weight = 2,  color = Color3.fromRGB(120, 255, 255) },
 		} },
-		{ key = "oeuf_mutation", name = "Œuf Mutation", cost = 1e21,
+		{ key = "oeuf_mutation", name = "Œuf Mutation", cost = 5e28,
 		  color = Color3.fromRGB(120, 255, 160), pets = {
 			{ key = "p_tentacule",name = "Tentacule",           mult = 2200, weight = 55, color = Color3.fromRGB(150, 100, 200) },
 			{ key = "p_hydre",    name = "Hydre à Trois Têtes", mult = 3000, weight = 30, color = Color3.fromRGB(90, 220, 140)  },

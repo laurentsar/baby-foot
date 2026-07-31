@@ -55,13 +55,19 @@ des **renaissances** et grimpe au **classement mondial**.
    pour le décor, c'est accepter de gagner moins. Terrain reconstruit à chaque
    passage (sol, murs, but, plateforme des œufs) et ambiance client assortie
    (ciel, brume, étalonnage).
-8. **Œufs & pets** 🥚 — une plateforme à côté du terrain porte **3 œufs par
-   monde** (9 au total). On clique un œuf pour l'ouvrir : il donne un **pet** de
-   son monde, qui **multiplie l'argent** (×1,1 au Stade jusqu'à ×6000 en
-   Radioactif). Les pets se rangent dans le **sac à dos**, **un seul est équipé**
-   à la fois et suit le joueur — bouton ⭐ *équiper le meilleur*. Les prix des
-   œufs sont fixes (pas de coefficient de renaissance) : l'étiquette posée sur
-   l'œuf dit toujours la vérité.
+8. **Œufs & pets** 🥚 — une plateforme **au parvis, à côté du point
+   d'apparition**, porte **3 œufs par monde** (9 au total). On clique un œuf :
+   il tremble, éclate et **le pet s'élève au-dessus du socle** — l'animation vit
+   côté serveur, les autres joueurs la voient donc aussi. Chaque pet
+   **multiplie l'argent** (×1,1 au Stade jusqu'à ×6000 en Radioactif). Les pets
+   se rangent dans le **sac à dos**, **un seul est équipé** à la fois et suit le
+   joueur — bouton ⭐ *équiper le meilleur*.
+
+   Les prix sont **calés sur le prix du monde** (250 K → 5 B au Stade,
+   5 Qi → 50 Sx en Galactique, 5 Sp → 50 Oc en Radioactif) : le premier œuf d'un
+   monde est abordable dès qu'on vient de le débloquer, le troisième reste un
+   objectif. Ils sont **fixes**, sans coefficient de renaissance : l'étiquette
+   posée sur l'œuf dit toujours la vérité.
 9. **Renaissance** 🔄 — reset argent + upgrades contre un multiplicateur
    permanent : **×2, ×4, ×6, ×8… (2 × le nombre de renaissances)**.
    **La collection de joueurs, la Chance et les Mondes sont conservés.**

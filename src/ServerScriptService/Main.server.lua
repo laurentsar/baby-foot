@@ -1284,6 +1284,17 @@ hatchEgg = function(player: Player, eggKey: string)
 		autoEquip = true
 	end
 
+	-- Animation d'éclosion sur l'œuf cliqué. Elle vit côté serveur, donc les
+	-- autres joueurs qui passent la voient aussi.
+	if session.eggPlatform then
+		for _, spot in session.eggPlatform.spots do
+			if spot.key == eggKey then
+				FieldBuilder.hatchAnimation(spot, pet)
+				break
+			end
+		end
+	end
+
 	updateLeaderstats(session, player)
 	pushStats(player)
 	rPetResult:FireClient(player, {

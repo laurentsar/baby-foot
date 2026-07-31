@@ -1222,12 +1222,13 @@ function FieldBuilder.buildEggPlatform(originOverride: Vector3?, worldIndex: num
 	model.Name = "PlateformeOeufs"
 	model.Parent = workspace
 
-	-- À 1,6 largeur du centre : au-delà du terrain le PLUS grand que les
-	-- renaissances puissent produire (1,25 largeur de demi-terrain), sinon la
-	-- plateforme finissait AVALÉE par le plateau d'un joueur très avancé. La zone
-	-- d'entraînement est à la même distance, de l'autre côté : les deux encadrent
-	-- le point de tir.
-	local base = Vector3.new(o.X + F.width * 1.6, o.Y, o.Z + F.shootLine)
+	-- AU PARVIS, à droite du point d'apparition : c'est la première chose qu'on
+	-- voit en arrivant, et on n'a plus à traverser tout le stade pour ouvrir un
+	-- œuf. Le panneau de classement occupe le côté gauche du parvis, d'où le
+	-- côté droit ici.
+	local E = Config.Entrance
+	local plazaZ = o.Z + F.shootLine - E.plazaOffset
+	local base = Vector3.new(o.X + E.plazaSize / 2 + 34, o.Y, plazaZ + 4)
 
 	local floor = part("SolOeufs", Vector3.new(46, 1.4, 34),
 		CFrame.new(base.X, base.Y + 0.7, base.Z), Color3.fromRGB(58, 62, 78), model, Enum.Material.Slate)
@@ -1309,6 +1310,111 @@ function FieldBuilder.buildEggPlatform(originOverride: Vector3?, worldIndex: num
 	end
 
 	return { model = model, spots = spots, base = base }
+end
+
+-- ÉCLOSION : l'œuf tremble, éclate en éclats de sa couleur, et le pet obtenu
+-- s'élève au-dessus du socle avant de disparaître.
+--
+-- Jouée CÔTÉ SERVEUR : elle se voit donc aussi des autres joueurs qui passent
+-- (c'est ce qui donne envie d'aller ouvrir un œuf). Les éclats sont des parts
+-- jetables, détruites au bout d'une seconde — pas de ParticleEmitter, qui
+-- demanderait une texture uploadée.
+--
+-- `spot` vient de FieldBuilder.buildEggPlatform. Une éclosion déjà en cours sur
+-- le même œuf est ignorée : sans ça, un joueur qui enchaîne les achats
+-- superposerait dix animations sur la même coquille.
+function FieldBuilder.hatchAnimation(spot, pet)
+	if not spot or not spot.shell or not spot.shell.Parent then return end
+	if spot.busy then return end
+	spot.busy = true
+
+	local TweenService = game:GetService("TweenService")
+	local shell = spot.shell :: BasePart
+	local home = shell.CFrame
+	local color = (pet and pet.color) or shell.Color
+
+	task.spawn(function()
+		-- 1. Tremblement : de plus en plus vite, comme un œuf qui va craquer.
+		for i = 1, 8 do
+			local a = math.rad(9 + i * 1.5)
+			shell.CFrame = home * CFrame.Angles(0, 0, if i % 2 == 0 then a else -a)
+			task.wait(0.10 - i * 0.008)
+		end
+		shell.CFrame = home
+
+		-- 2. La coquille s'efface un instant : c'est le moment de l'éclosion.
+		shell.Transparency = 1
+		local shellTag = shell:FindFirstChild("Etiquette")
+		if shellTag and shellTag:IsA("BillboardGui") then shellTag.Enabled = false end
+
+		-- 3. Éclats projetés.
+		for i = 1, 12 do
+			local shard = Instance.new("Part")
+			shard.Name = "Eclat"
+			shard.Size = Vector3.new(0.8, 0.8, 0.8)
+			shard.Color = color
+			shard.Material = Enum.Material.Neon
+			shard.Anchored = true
+			shard.CanCollide = false
+			shard.CastShadow = false
+			shard.CFrame = home
+			shard.Parent = shell.Parent
+			local a = (i / 12) * math.pi * 2
+			local away = home * CFrame.new(math.cos(a) * 7, math.random(2, 6), math.sin(a) * 7)
+			TweenService:Create(shard, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ CFrame = away, Transparency = 1, Size = Vector3.new(0.1, 0.1, 0.1) }):Play()
+			game:GetService("Debris"):AddItem(shard, 1)
+		end
+
+		-- 4. Le pet apparaît et monte.
+		if pet then
+			local orb = Instance.new("Part")
+			orb.Name = "PetRevele"
+			orb.Shape = Enum.PartType.Ball
+			orb.Size = Vector3.new(1, 1, 1)
+			orb.Color = pet.color
+			orb.Material = Enum.Material.Neon
+			orb.Anchored = true
+			orb.CanCollide = false
+			orb.CastShadow = false
+			orb.CFrame = home
+			orb.Parent = shell.Parent
+
+			local tag = Instance.new("BillboardGui")
+			tag.Size = UDim2.fromOffset(210, 44)
+			tag.StudsOffset = Vector3.new(0, 3, 0)
+			tag.AlwaysOnTop = true
+			tag.MaxDistance = 220
+			tag.Parent = orb
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.fromScale(1, 1)
+			label.BackgroundTransparency = 1
+			label.Text = string.format("%s\nargent x%s", pet.name, Config.abbreviate(pet.mult))
+			label.Font = Enum.Font.GothamBlack
+			label.TextScaled = true
+			label.TextColor3 = pet.color
+			label.TextStrokeTransparency = 0.2
+			label.Parent = tag
+
+			TweenService:Create(orb, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+				{ Size = Vector3.new(3.4, 3.4, 3.4) }):Play()
+			task.wait(0.5)
+			TweenService:Create(orb, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ CFrame = home * CFrame.new(0, 9, 0), Transparency = 1 }):Play()
+			game:GetService("Debris"):AddItem(orb, 1.6)
+			task.wait(1.1)
+		else
+			task.wait(0.5)
+		end
+
+		-- 5. Un nouvel œuf a repoussé sur le socle.
+		if shell.Parent then
+			shell.Transparency = 0
+			shell.CFrame = home
+			if shellTag and shellTag:IsA("BillboardGui") then shellTag.Enabled = true end
+		end
+		spot.busy = false
+	end)
 end
 
 -- Grand panneau de classement mondial, placé au fond derrière le but.
