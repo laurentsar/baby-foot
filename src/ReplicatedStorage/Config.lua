@@ -19,15 +19,18 @@ Config.SaveKey = "BabyFootPower_v1"  -- change la clé => reset des sauvegardes
 -- pour corriger une faute de frappe ne doit pas relancer une annonce.
 -------------------------------------------------------------------------------
 Config.Release = {
-	version = "1.3.0",
-	title = "🐾 Mise à jour 1.3 — Équipe, Pets multiples & Spectateur",
+	version = "1.4.0",
+	title = "🐾 Mise à jour 1.4 — Équipe nommée, Quêtes & Gemmes",
 	notes = {
-		"👥 COMPOSITION D'ÉQUIPE : dans COLLECTION → ✏️ COMPOSER, choisis QUI joue à QUEL poste (gardien, défense, milieu, attaque). Les emplacements laissés libres se remplissent tout seuls avec tes meilleures cartes.",
-		"🐾 PLUSIEURS PETS À LA FOIS : 2 places au départ, +1 toutes les 2 renaissances jusqu'à 6. Leurs bonus s'ADDITIONNENT (deux ×3 font ×5, pas ×9).",
-		"📕 INDEX DES PETS : les 36 pets du jeu, groupés par monde et par œuf, avec ceux qui te manquent — tu sais enfin quel œuf ouvrir.",
-		"👁 MODE SPECTATEUR : va regarder le terrain d'un autre joueur, et reviens chez toi d'un appui sur le bandeau.",
-		"💤 MODE AFK : la puissance monte toute seule pendant que tu fais autre chose, à 55 % du rythme de l'entraînement à la main.",
-		"🎁 DONS : le montant se règle au doigt (−10 % / −1 % / +1 % / +10 %, puis 25 %, 50 %, TOUT) sans jamais ouvrir le clavier, et tu peux désormais offrir jusqu'à 100 % de ta fortune.",
+		"🏷 NOMME TON ÉQUIPE : à ta toute première partie, choisis le nom de ton équipe. Il est sauvegardé — on ne te le redemandera plus.",
+		"📜 QUÊTES SUR LES MURS : les murs derrière ta zone de tir affichent des quêtes à ton nom. Chaque quête accomplie te donne des 💎 gemmes ; plus elle est difficile, plus tu gagnes.",
+		"💎 GEMMES : une nouvelle monnaie. Dépense-la pour acheter directement des niveaux de VALEUR JOUEUR et de CHANCE, dans le nouveau panneau AMÉLIORATION.",
+		"🔧 NOUVEL AGENCEMENT : les améliorations quittent la boutique pour un bouton carré AMÉLIORATION en bas à gauche ; le bouton COÉQUIPIERS passe lui aussi en bas.",
+		"🏆 CLASSEMENTS SÉPARÉS : trois classements mondiaux (Argent, Puissance, Gemmes) côte à côte sur trois écrans, plus jolis et plus compacts.",
+		"🥅 FINISSEUR : nouvelle amélioration qui fait rapporter PLUS D'ARGENT quand tu marques un but.",
+		"🥅 PLUS DE PLACE : les murs de la zone de tir ont reculé pour qu'on soit à l'aise pour jouer.",
+		"💰 ÉCONOMIE REVUE : les gains d'argent sont fortement réduits, et un don ne peut plus dépasser 500 $.",
+		"💎 GROS NOMBRES : au-delà des suffixes, l'échelle passe en « Diamant 1, Diamant 2… » au lieu d'« Infini ».",
 	},
 }
 
@@ -35,13 +38,13 @@ Config.Release = {
 -- précédente ici pour retrouver ce qui a été annoncé quand (et pour recopier la
 -- forme des notes à la prochaine mise à jour).
 Config.PreviousRelease = {
-	version = "1.2.0",
-	title = "🐾 Mise à jour 1.2 — Pets, Œufs & Téléportation",
+	version = "1.3.0",
+	title = "🐾 Mise à jour 1.3 — Équipe, Pets multiples & Spectateur",
 	notes = {
-		"🥚 ŒUFS & PETS : une plateforme juste à côté du point d'apparition, 3 œufs par monde (9 en tout), 36 pets à collectionner.",
-		"🚀 TÉLÉPORTATION : va dans n'importe quel monde déjà débloqué. C'est le monde OÙ TU ES qui donne son multiplicateur.",
-		"🌍 MONDES BEAUCOUP PLUS CHERS : Galactique 1 Sx, Radioactif 1 Oc.",
-		"🎁 DONS : boutons 10 % / 25 % / MAX, sans ouvrir le clavier du téléphone.",
+		"👥 COMPOSITION D'ÉQUIPE : choisis QUI joue à QUEL poste.",
+		"🐾 PLUSIEURS PETS À LA FOIS : jusqu'à 6, bonus additionnés.",
+		"📕 INDEX DES PETS, 👁 MODE SPECTATEUR, 💤 MODE AFK.",
+		"🎁 DONS réglés au doigt, jusqu'à 100 % de ta fortune.",
 	},
 }
 
@@ -60,6 +63,9 @@ Config.Dumbbells = {
 	{ name = "Haltère Diamant",  powerGain = 75,  cost = 900000 },
 	{ name = "Haltère Néon",     powerGain = 210, cost = 6000000 },
 	{ name = "Haltère Galaxie",  powerGain = 600, cost = 40000000 },
+	{ name = "Haltère Quantique",powerGain = 1700,  cost = 250000000 },
+	{ name = "Haltère Abyssal",  powerGain = 5000,  cost = 1500000000 },
+	{ name = "Haltère Céleste",  powerGain = 15000, cost = 10000000000 },
 }
 
 -------------------------------------------------------------------------------
@@ -74,6 +80,9 @@ Config.Balls = {
 	{ name = "Balle Plasma",   moneyMult = 22,   cost = 500000 },
 	{ name = "Balle Cosmos",   moneyMult = 60,   cost = 4000000 },
 	{ name = "Balle Trou Noir",moneyMult = 180,  cost = 30000000 },
+	{ name = "Balle Abyssale", moneyMult = 500,  cost = 200000000 },
+	{ name = "Balle Céleste",  moneyMult = 1400, cost = 1500000000 },
+	{ name = "Balle Divine",   moneyMult = 4000, cost = 10000000000 },
 }
 
 -------------------------------------------------------------------------------
@@ -192,6 +201,17 @@ Config.Rarities = {
 	-- c'est surtout une carte à offrir ou à accorder.
 	{ key = "astral",     name = "Astral",     mult = 1000, weight = 0.005, color = Color3.fromRGB(196, 92, 255),
 	  cardName = "L'Astral" },
+	-- Tiers au-dessus de l'Astral : de plus en plus rares, à offrir ou à viser sur
+	-- le très long terme. Chacun est un personnage unique (cardName).
+	{ key = "cosmique",   name = "Cosmique",   mult = 2500,  weight = 0.002,  color = Color3.fromRGB(120, 220, 255),
+	  cardName = "Le Cosmique" },
+	{ key = "eternel",    name = "Éternel",    mult = 6000,  weight = 0.0008, color = Color3.fromRGB(255, 150, 60),
+	  cardName = "L'Éternel" },
+	-- ADMIN : la rareté ULTRA RARE. weight = 0 => JAMAIS tirée aux dés. On ne
+	-- l'obtient que par le panneau admin (ou un don). C'est la carte au sommet
+	-- absolu du tableau, tenue et couleur uniques (cf. Config.Skins.admin).
+	{ key = "admin",      name = "Admin",      mult = 100000, weight = 0,     color = Color3.fromRGB(255, 40, 40),
+	  cardName = "Administrateur" },
 }
 
 function Config.rarity(key: string)
@@ -337,6 +357,12 @@ Config.Worlds = {
 	{ key = "radioactif", name = "Radioactif",  cost = 1e27,  moneyMult = 4,
 	  ground = Color3.fromRGB(96, 168, 40),   groundMaterial = Enum.Material.Ground,
 	  wall = Color3.fromRGB(64, 92, 30),      accent = Color3.fromRGB(180, 255, 60) },
+	{ key = "abysses",    name = "Abysses",     cost = 1e33,  moneyMult = 8,
+	  ground = Color3.fromRGB(12, 52, 62),    groundMaterial = Enum.Material.Slate,
+	  wall = Color3.fromRGB(18, 74, 86),      accent = Color3.fromRGB(64, 224, 208) },
+	{ key = "celeste",    name = "Céleste",     cost = 1e39,  moneyMult = 16,
+	  ground = Color3.fromRGB(232, 216, 150), groundMaterial = Enum.Material.Marble,
+	  wall = Color3.fromRGB(210, 190, 96),    accent = Color3.fromRGB(255, 240, 160) },
 }
 
 function Config.world(index: number?)
@@ -445,6 +471,54 @@ Config.Eggs = {
 			{ key = "p_omega",    name = "Oméga",               mult = 6000, weight = 2,  color = Color3.fromRGB(255, 90, 220)  },
 		} },
 	},
+	-- MONDE 4 — ABYSSES
+	{
+		{ key = "oeuf_corail", name = "Œuf de Corail", cost = 5e30,
+		  color = Color3.fromRGB(60, 150, 160), pets = {
+			{ key = "p_ab_meduse",  name = "Méduse Lumineuse",  mult = 7000,   weight = 58, color = Color3.fromRGB(140, 220, 230) },
+			{ key = "p_ab_crabe",   name = "Crabe des Fonds",   mult = 9500,   weight = 30, color = Color3.fromRGB(200, 90, 80)   },
+			{ key = "p_ab_hippo",   name = "Hippocampe",        mult = 13000,  weight = 10, color = Color3.fromRGB(120, 200, 180) },
+			{ key = "p_ab_perle",   name = "Perle Noire",       mult = 19000,  weight = 2,  color = Color3.fromRGB(60, 70, 90)    },
+		} },
+		{ key = "oeuf_fosse", name = "Œuf de la Fosse", cost = 5e32,
+		  color = Color3.fromRGB(30, 90, 110), pets = {
+			{ key = "p_ab_anguille",name = "Anguille Électrique",mult = 22000, weight = 55, color = Color3.fromRGB(150, 230, 255) },
+			{ key = "p_ab_pieuvre", name = "Pieuvre Géante",    mult = 30000,  weight = 31, color = Color3.fromRGB(150, 80, 160)  },
+			{ key = "p_ab_requin",  name = "Requin Abyssal",    mult = 42000,  weight = 12, color = Color3.fromRGB(90, 110, 130)  },
+			{ key = "p_ab_kraken",  name = "Kraken",            mult = 60000,  weight = 2,  color = Color3.fromRGB(40, 90, 100)   },
+		} },
+		{ key = "oeuf_tresor", name = "Œuf au Trésor", cost = 5e34,
+		  color = Color3.fromRGB(90, 200, 200), pets = {
+			{ key = "p_ab_ancre",   name = "Ancre Maudite",     mult = 70000,  weight = 55, color = Color3.fromRGB(120, 140, 150) },
+			{ key = "p_ab_sirene",  name = "Sirène",            mult = 95000,  weight = 30, color = Color3.fromRGB(120, 230, 200) },
+			{ key = "p_ab_leviathan",name = "Léviathan",        mult = 130000, weight = 13, color = Color3.fromRGB(50, 130, 140)  },
+			{ key = "p_ab_neptune", name = "Trident de Neptune",mult = 190000, weight = 2,  color = Color3.fromRGB(80, 220, 230)  },
+		} },
+	},
+	-- MONDE 5 — CÉLESTE
+	{
+		{ key = "oeuf_nuage", name = "Œuf de Nuage", cost = 5e36,
+		  color = Color3.fromRGB(235, 235, 245), pets = {
+			{ key = "p_ce_plume",   name = "Plume d'Ange",      mult = 220000,  weight = 58, color = Color3.fromRGB(250, 250, 255) },
+			{ key = "p_ce_colombe", name = "Colombe Dorée",     mult = 300000,  weight = 30, color = Color3.fromRGB(255, 235, 160) },
+			{ key = "p_ce_harpe",   name = "Harpe Céleste",     mult = 420000,  weight = 10, color = Color3.fromRGB(255, 220, 120) },
+			{ key = "p_ce_aureole", name = "Auréole",           mult = 600000,  weight = 2,  color = Color3.fromRGB(255, 245, 180) },
+		} },
+		{ key = "oeuf_astre", name = "Œuf d'Astre", cost = 5e38,
+		  color = Color3.fromRGB(255, 220, 120), pets = {
+			{ key = "p_ce_seraphin",name = "Séraphin",          mult = 700000,  weight = 55, color = Color3.fromRGB(255, 240, 190) },
+			{ key = "p_ce_phenix",  name = "Phénix",            mult = 950000,  weight = 31, color = Color3.fromRGB(255, 140, 60)  },
+			{ key = "p_ce_pegase",  name = "Pégase",            mult = 1300000, weight = 12, color = Color3.fromRGB(240, 240, 255) },
+			{ key = "p_ce_licorne", name = "Licorne Astrale",   mult = 1900000, weight = 2,  color = Color3.fromRGB(220, 180, 255) },
+		} },
+		{ key = "oeuf_divin", name = "Œuf Divin", cost = 5e40,
+		  color = Color3.fromRGB(255, 245, 200), pets = {
+			{ key = "p_ce_titan",   name = "Titan Céleste",     mult = 2200000, weight = 55, color = Color3.fromRGB(255, 230, 150) },
+			{ key = "p_ce_gardien", name = "Gardien des Cieux", mult = 3000000, weight = 30, color = Color3.fromRGB(200, 220, 255) },
+			{ key = "p_ce_dragon",  name = "Dragon Solaire",    mult = 4200000, weight = 13, color = Color3.fromRGB(255, 180, 70)  },
+			{ key = "p_ce_divinite",name = "Divinité",          mult = 6000000, weight = 2,  color = Color3.fromRGB(255, 255, 240) },
+		} },
+	},
 }
 
 -- Index construit une fois : clé de pet -> pet, et clé d'œuf -> œuf + monde.
@@ -491,6 +565,23 @@ function Config.rollPet(rng: Random, egg): string
 		if pick <= acc then return pet.key end
 	end
 	return egg.pets[1].key
+end
+
+-- Chances d'obtention (%) de chaque pet d'un œuf, d'après les poids de tirage.
+-- Trié du plus fréquent au plus rare. Utilisé par l'affichage à l'approche d'un
+-- œuf (billboard « chances »).
+function Config.eggChances(egg)
+	local total = 0
+	for _, pet in egg.pets do total += pet.weight end
+	local out = {}
+	for _, pet in egg.pets do
+		table.insert(out, {
+			key = pet.key, name = pet.name, color = pet.color, mult = pet.mult,
+			pct = if total > 0 then pet.weight / total * 100 else 0,
+		})
+	end
+	table.sort(out, function(a, b) return a.pct > b.pct end)
+	return out
 end
 
 -- Meilleur pet possédé (celui au plus gros multiplicateur), pour le bouton
@@ -708,6 +799,39 @@ Config.PlayerValue = {
 }
 
 -------------------------------------------------------------------------------
+-- FINISSEUR : amélioration qui augmente l'argent gagné QUAND ON MARQUE.
+-- N'affecte que les buts (pas les simples touches) : c'est la récompense de la
+-- précision. Multiplicateur = 1 + niveau * bonusPerLevel, cumulatif avec le x3
+-- de but déjà en place (Config.Shot.scoreMultiplier).
+-------------------------------------------------------------------------------
+Config.GoalBonus = {
+	bonusPerLevel = 0.5,   -- +50 % d'argent sur un but par niveau
+	baseCost = 5000,
+	costGrowth = 1.7,
+}
+
+function Config.goalBonusMult(level: number): number
+	return 1 + math.max(0, math.floor(level or 0)) * Config.GoalBonus.bonusPerLevel
+end
+
+function Config.goalBonusCost(level: number): number
+	return math.floor(Config.GoalBonus.baseCost * (Config.GoalBonus.costGrowth ^ math.max(0, level)))
+end
+
+-------------------------------------------------------------------------------
+-- ÉQUILIBRAGE GLOBAL DES GAINS.
+--
+-- Knob unique appliqué à TOUT l'argent gagné en jeu (via moneyMultiplier dans
+-- Main.server). N'affecte NI les dons (transferts entre joueurs) NI les commandes
+-- admin : ceux-ci ne passent pas par moneyMultiplier.
+--
+-- 1 = gains d'avant. 0.02 = gains à 2 % (≈ 50× moins) — réglé car on gagnait
+-- beaucoup trop d'argent (« argent infini » ressenti). Baisser encore vers 0
+-- pour ralentir davantage, remonter vers 1 pour revenir aux gains d'origine.
+-------------------------------------------------------------------------------
+Config.MoneyGain = 0.02
+
+-------------------------------------------------------------------------------
 -- RENAISSANCE (rebirth) : reset argent + upgrades, gagne un multiplicateur permanent.
 -- 1 renaissance = x2, 2 = x4, 3 = x6, puis +2 par renaissance (mult = 2 * n).
 -------------------------------------------------------------------------------
@@ -896,6 +1020,10 @@ Config.Gift = {
 	-- c'est le cooldown, et le fait qu'un don ne CRÉE jamais d'argent.
 	maxShare = 1,
 	minMoney = 1,
+	-- Plafond ABSOLU d'un don d'argent : quoi qu'il arrive, un don ne dépasse
+	-- jamais cette somme, même si le donneur est riche. Réglé à 500 pour que les
+	-- dons restent un coup de pouce entre joueurs, pas un transfert de fortune.
+	maxAbsolute = 500,
 }
 
 -------------------------------------------------------------------------------
@@ -952,6 +1080,18 @@ Config.Shot = {
 	-- court jusque-là : un terrain vide entre deux tirs oblige à viser plutôt
 	-- qu'à mitrailler.
 	respawnDelay = 2.2,
+}
+
+-------------------------------------------------------------------------------
+-- GARDIEN.
+--
+-- Quand la balle arrive dans le cadre, le gardien TENTE un arrêt : il ne prend
+-- pas tout, mais parfois il détourne le tir (pas de but). Un tir parfait
+-- (« TRÈS BIEN ») passe beaucoup plus souvent — le skill récompense le joueur.
+-------------------------------------------------------------------------------
+Config.Keeper = {
+	saveChance = 0.28,        -- arrêt sur un tir normal
+	perfectSaveChance = 0.10, -- arrêt sur un tir « TRÈS BIEN »
 }
 
 -------------------------------------------------------------------------------
@@ -1083,6 +1223,19 @@ Config.Skins = {
 		glow = true,
 		halo = Color3.fromRGB(255, 202, 64),
 	},
+	-- ADMIN : rouge néon + halo doré, reconnaissable entre toutes.
+	admin = {
+		body = Color3.fromRGB(220, 30, 30),
+		stripe = Color3.fromRGB(255, 90, 60),
+		trim = Color3.fromRGB(255, 215, 80),
+		shorts = Color3.fromRGB(30, 30, 34),
+		head = Color3.fromRGB(255, 220, 180),
+		arms = Color3.fromRGB(220, 30, 30),
+		socks = Color3.fromRGB(255, 215, 80),
+		shoes = Color3.fromRGB(20, 20, 24),
+		glow = true,
+		halo = Color3.fromRGB(255, 60, 60),
+	},
 }
 
 -- Tenue effective d'une rareté : la tenue dédiée si elle existe, complétée par
@@ -1212,6 +1365,68 @@ end
 local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc",
 	"Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod", "Vg" }
 
+-------------------------------------------------------------------------------
+-- GEMMES : deuxième monnaie, gagnée aux QUÊTES (voir Config.Quests).
+--
+-- Les gemmes ne se farment pas : on les gagne en accomplissant des quêtes, une
+-- fois chacune. Elles servent à acheter DIRECTEMENT des niveaux de « valeur
+-- joueur » et de « chance » — un raccourci de progression payé en gemmes plutôt
+-- qu'en argent. Les coûts sont bas EN NOMBRE parce que les gemmes sont rares.
+-------------------------------------------------------------------------------
+Config.Gems = {
+	valueBaseCost = 2, valueGrowth = 1.15,
+	luckBaseCost = 5,  luckGrowth = 1.6,
+}
+
+function Config.gemValueCost(level: number): number
+	return math.max(1, math.floor(Config.Gems.valueBaseCost * (Config.Gems.valueGrowth ^ math.max(0, level))))
+end
+
+function Config.gemLuckCost(level: number): number
+	return math.max(1, math.floor(Config.Gems.luckBaseCost * (Config.Gems.luckGrowth ^ math.max(0, level))))
+end
+
+-------------------------------------------------------------------------------
+-- QUÊTES : des objectifs affichés sur les murs de la zone de tir, avec le nom de
+-- ton équipe. Chaque quête accomplie donne des gemmes UNE fois. Plus la quête
+-- est difficile, plus la récompense est grosse.
+--
+-- Une quête se mesure sur une statistique DÉJÀ suivie (argent cumulé,
+-- renaissances, joueurs recrutés, puissance) : aucun compteur nouveau à tenir,
+-- et le serveur crédite les gemmes dès que le seuil est franchi.
+-------------------------------------------------------------------------------
+Config.QuestColors = {
+	facile    = Color3.fromRGB(90, 220, 120),
+	moyen     = Color3.fromRGB(255, 200, 60),
+	difficile = Color3.fromRGB(255, 100, 110),
+}
+
+-- Les quêtes se RÉACTUALISENT toutes les `QuestCycle` secondes : leurs objectifs
+-- se mesurent sur ce que tu gagnes PENDANT LE CYCLE (pas sur ton total à vie), et
+-- le compteur repart à zéro à chaque réactualisation. On peut donc les refaire.
+Config.QuestCycle = 600   -- 10 minutes
+
+Config.Quests = {
+	{ id = "q_earn1",  title = "Gagner 25K $ (ce cycle)",     difficulty = "facile",    metric = "earned", target = 25e3,  gems = 2 },
+	{ id = "q_cards1", title = "Recruter 5 joueurs",          difficulty = "facile",    metric = "cards",  target = 5,     gems = 2 },
+	{ id = "q_pow0",   title = "Gagner 500 de puissance",     difficulty = "facile",    metric = "power",  target = 500,   gems = 2 },
+	{ id = "q_earn2",  title = "Gagner 1M $ (ce cycle)",      difficulty = "moyen",     metric = "earned", target = 1e6,   gems = 5 },
+	{ id = "q_pow1",   title = "Gagner 1 500 de puissance",   difficulty = "moyen",     metric = "power",  target = 1500,  gems = 5 },
+	{ id = "q_cards2", title = "Recruter 20 joueurs",         difficulty = "moyen",     metric = "cards",  target = 20,    gems = 8 },
+	{ id = "q_earn3",  title = "Gagner 50M $ (ce cycle)",     difficulty = "difficile", metric = "earned", target = 50e6,  gems = 12 },
+	{ id = "q_pow2",   title = "Gagner 25K de puissance",     difficulty = "difficile", metric = "power",  target = 25e3,  gems = 18 },
+}
+
+-- Valeur courante de la statistique mesurée par une quête, lue dans le profil.
+function Config.questMetricValue(data, metric: string): number
+	if metric == "earned" then return tonumber(data.totalEarned) or 0
+	elseif metric == "rebirths" then return tonumber(data.rebirths) or 0
+	elseif metric == "cards" then return #(data.cards or {})
+	elseif metric == "power" then return tonumber(data.power) or 0
+	end
+	return 0
+end
+
 function Config.abbreviate(n: number): string
 	if n ~= n or n == math.huge or n == -math.huge then
 		return "∞"
@@ -1225,8 +1440,17 @@ function Config.abbreviate(n: number): string
 		v /= 1000
 		i += 1
 	end
+	-- Au-delà de la table des suffixes (1e63), on ne bascule plus en notation
+	-- scientifique illisible : on continue par paliers « Diamant ». Chaque tranche
+	-- de 1000 en plus = un cran (Diamant 1 = « infini une fois », Diamant 2 = deux
+	-- fois, Diamant 3, … et ainsi de suite).
 	if v >= 999.995 then
-		return sign .. string.format("%.2e", v * 1000 ^ (#SUFFIXES - 1))
+		local tier = 0
+		while v >= 999.995 do
+			v /= 1000
+			tier += 1
+		end
+		return sign .. string.format("%.2f Diamant %d", v, tier)
 	end
 	if i == 1 then
 		return sign .. tostring(math.floor(v))

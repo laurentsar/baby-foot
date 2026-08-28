@@ -1,0 +1,4 @@
+# Copie ce fichier en « roblox-publish.conf » et mets l'ID de TON jeu.
+# L'ID est dans l'adresse du jeu : roblox.com/games/ICI/nom-du-jeu
+PLACE_ID=000000000
+# UNIVERSE_ID se remplit tout seul à la première publication — ne pas y toucher.

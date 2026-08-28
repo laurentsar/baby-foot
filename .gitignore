@@ -3,3 +3,4 @@ rojo-serve.log
 *.rbxl
 *.rbxm
 .DS_Store
+roblox-publish.conf

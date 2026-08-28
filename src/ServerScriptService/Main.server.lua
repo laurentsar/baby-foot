@@ -38,6 +38,7 @@ local rAdmin = Remotes.get("Admin")
 local rRoster = Remotes.get("Roster")
 local rUsePotion = Remotes.get("UsePotion")
 local rTutorial = Remotes.get("Tutorial")
+local rSetTeamName = Remotes.get("SetTeamName")
 local rChallenge = Remotes.get("Challenge")
 local rReleaseSeen = Remotes.get("ReleaseSeen")
 local rWorld = Remotes.get("World")
@@ -86,6 +87,7 @@ type Session = {
 	-- Rythme de gain de la session, qui alimente les gains hors ligne.
 	sessionStart: number,
 	sessionEarned: number,
+	questBaseline: { [string]: number }?,
 }
 
 local sessions: { [Player]: Session } = {}
@@ -95,6 +97,44 @@ local freeSlots: { number } = {}   -- plots rendus par les joueurs partis
 -- plus agrandi possible par les renaissances (Config.Rebirth.maxFieldGrowth)
 -- ne chevauche jamais celui du voisin.
 local SLOT_SPACING = 600
+
+-- PLAFOND DUR des grandes valeurs (argent, puissance, total gagné). Sans lui, la
+-- croissance exponentielle (renaissances × monde × pets × valeur joueur…) finit
+-- par dépasser la limite des nombres à virgule flottante et TOUT bascule à
+-- l'infini : le solde s'affiche « ∞ » (le fameux « argent infini ») et les coûts
+-- deviennent absurdes. On borne donc chaque total bien en dessous de cette
+-- limite ; l'échelle « Diamant N » (cf. Config.abbreviate) suffit largement pour
+-- afficher jusqu'ici sans jamais montrer l'infini.
+local MAX_STAT = 1e300
+local function capStat(x: number): number
+	if x ~= x then return 0 end          -- NaN
+	if x > MAX_STAT then return MAX_STAT end
+	if x < 0 then return 0 end
+	return x
+end
+
+-- Instant de la prochaine réactualisation des quêtes (rempli par la boucle de
+-- cycle plus bas ; lu par updateQuestBoard pour afficher le compte à rebours).
+local nextQuestReset = 0
+
+-- Photo des métriques de quête d'un joueur : sert de point zéro du cycle en
+-- cours. La progression d'une quête = valeur actuelle − cette photo.
+local function questSnapshot(session)
+	local d = session.data
+	return {
+		earned = tonumber(d.totalEarned) or 0,
+		power = tonumber(d.power) or 0,
+		cards = #(d.cards or {}),
+	}
+end
+
+-- Progrès réalisé dans le cycle courant pour la métrique d'une quête (jamais
+-- négatif : une renaissance qui remet la puissance à zéro ne doit pas afficher
+-- un progrès négatif).
+local function questProgress(session, metric: string): number
+	local base = session.questBaseline or {}
+	return math.max(0, Config.questMetricValue(session.data, metric) - (base[metric] or 0))
+end
 
 -- Tous les panneaux de classement (stade + un parvis par plot) : le compte à
 -- rebours du coup de sifflet est écrit sur chacun.
@@ -176,6 +216,9 @@ local function moneyMultiplier(session: Session): number
 	m *= Config.petsMultiplier(session.data.petsEquipped)
 	-- Potion d'Or.
 	m *= effectMult(session, "money")
+	-- Équilibrage global : réduit tous les gains en jeu (cf. Config.MoneyGain).
+	-- N'affecte ni les dons ni les commandes admin (hors de cette fonction).
+	m *= Config.MoneyGain
 	return m
 end
 
@@ -314,6 +357,10 @@ local function buildStats(session: Session)
 		diceCost = math.floor(Config.diceCost(d.rolls, session.passes.VIP == true) * costMult),
 		playerValue = Config.playerValueAt(d.valueLevel),
 		playerValueCost = math.floor(Config.playerValueCost(d.valueLevel) * costMult),
+		-- FINISSEUR : niveau, multiplicateur d'argent-but courant, prix du suivant.
+		goalLevel = d.goalLevel or 0,
+		goalBonusMult = Config.goalBonusMult(d.goalLevel or 0),
+		goalBonusCost = math.floor(Config.goalBonusCost(d.goalLevel or 0) * costMult),
 		rebirthCost = Config.rebirthCost(d.rebirths),
 		nextRebirthMult = Config.rebirthMultiplier(d.rebirths + 1, session.passes.RebirthX2 == true),
 		passes = session.passes,
@@ -378,12 +425,131 @@ local function buildStats(session: Session)
 		-- Contrôlé aussi à chaque commande côté serveur : ce champ ne sert qu'à
 		-- afficher ou non le panneau, il n'autorise rien par lui-même.
 		isAdmin = Config.isAdmin(session.userId),
+		-- NOM D'ÉQUIPE + GEMMES (cf. Config.Gems / Config.Quests).
+		teamName = d.teamName or "",
+		gems = d.gems or 0,
+		goalsScored = d.goalsScored or 0,
+		-- Achat direct de niveaux en gemmes (raccourci de progression).
+		gemValueCost = Config.gemValueCost(d.valueLevel),
+		gemLuckCost = (if (d.luck or 0) < Config.Luck.maxLevel then Config.gemLuckCost(d.luck or 0) else nil),
+		-- QUÊTES : chacune avec sa progression et si elle est déjà créditée.
+		quests = (function()
+			local claimed = d.questsClaimed or {}
+			local list = {}
+			for _, q in Config.Quests do
+				local value = questProgress(session, q.metric)
+				list[#list + 1] = {
+					id = q.id, title = q.title, difficulty = q.difficulty,
+					target = q.target, gems = q.gems, value = value,
+					done = claimed[q.id] == true,
+				}
+			end
+			return list
+		end)(),
 	}
+end
+
+-- Rafraîchit le panneau de quêtes affiché sur le mur de la zone de tir : nom de
+-- l'équipe en titre, puis une ligne par quête (✓ faite, ○ en cours avec sa
+-- progression). Silencieux si le terrain n'a pas de panneau (ancienne save,
+-- reconstruction en cours).
+local function updateQuestBoard(session: Session)
+	local field = session.field
+	local gui = field and field.questGui
+	if not gui then return end
+	local d = session.data
+	local claimed = d.questsClaimed or {}
+
+	local titleLabel = gui:FindFirstChild("Team", true) :: TextLabel?
+	if titleLabel then
+		local team = d.teamName ~= nil and d.teamName ~= "" and d.teamName or "Ton équipe"
+		titleLabel.Text = "📜 QUÊTES DE " .. string.upper(team)
+	end
+
+	local listLabel = gui:FindFirstChild("List", true) :: TextLabel?
+	if listLabel then
+		local rows = {}
+		-- RECOMMANDATION DE PUISSANCE : la puissance qu'il faut, sur un tir « BIEN »,
+		-- pour que la balle atteigne le fond du terrain (le but) tel qu'il est ici.
+		-- distance = fond - point de tir ; v nécessaire = sqrt(2*décel*distance).
+		local S = Config.Shot
+		local dist = math.max(1, (field.goalZ or 0) - (field.shootPos and field.shootPos.Z or 0))
+		local vNeeded = math.sqrt(2 * S.decel * dist)
+		local reco = math.max(0, math.ceil((vNeeded - S.baseSpeed) / S.powerToSpeed))
+		rows[#rows + 1] = string.format("🎯 Puissance conseillée : %s", Config.abbreviate(reco))
+		local left = math.max(0, math.ceil(nextQuestReset - os.clock()))
+		rows[#rows + 1] = string.format("🔄 Réactualise dans %d:%02d", math.floor(left / 60), left % 60)
+		rows[#rows + 1] = ""
+		for _, q in Config.Quests do
+			if claimed[q.id] then
+				rows[#rows + 1] = string.format("✅ %s  (+%d 💎)", q.title, q.gems)
+			else
+				local v = questProgress(session, q.metric)
+				rows[#rows + 1] = string.format("⬜ %s  —  %s/%s  (+%d 💎)",
+					q.title, Config.abbreviate(v), Config.abbreviate(q.target), q.gems)
+			end
+		end
+		listLabel.Text = table.concat(rows, "\n")
+	end
+end
+
+-- Rafraîchit le panneau STATS D'ÉQUIPE (mur de droite de la zone de tir) : nom de
+-- l'équipe + les chiffres à vie du joueur (buts, argent total, puissance,
+-- renaissances, gemmes, joueurs recrutés). Même système visuel que le classement.
+local function updateTeamBoard(session: Session)
+	local field = session.field
+	local gui = field and field.teamGui
+	if not gui then return end
+	local d = session.data
+
+	local titleLabel = gui:FindFirstChild("Team", true) :: TextLabel?
+	if titleLabel then
+		local team = d.teamName ~= nil and d.teamName ~= "" and d.teamName or "Ton équipe"
+		titleLabel.Text = "📊 " .. string.upper(team)
+	end
+
+	local listLabel = gui:FindFirstChild("List", true) :: TextLabel?
+	if listLabel then
+		listLabel.Text = table.concat({
+			string.format("⚽ Buts marqués : %s", Config.abbreviate(d.goalsScored or 0)),
+			string.format("💰 Argent gagné : %s", Config.abbreviate(d.totalEarned or 0)),
+			string.format("💪 Puissance : %s", Config.abbreviate(d.power or 0)),
+			string.format("🔄 Renaissances : %d", d.rebirths or 0),
+			string.format("💎 Gemmes : %s", Config.abbreviate(d.gems or 0)),
+			string.format("👥 Joueurs : %d", #(d.cards or {})),
+		}, "\n")
+	end
+end
+
+-- QUÊTES : crédite les gemmes des quêtes dont le seuil vient d'être franchi.
+-- Idempotent : une quête déjà dans `questsClaimed` n'est jamais recréditée.
+-- Renvoie true si au moins une quête a été accomplie (pour rafraîchir le mur).
+local function awardQuests(session: Session, player: Player): boolean
+	local d = session.data
+	d.questsClaimed = d.questsClaimed or {}
+	d.gems = tonumber(d.gems) or 0
+	local changed = false
+	for _, q in Config.Quests do
+		if not d.questsClaimed[q.id] then
+			if questProgress(session, q.metric) >= q.target then
+				d.questsClaimed[q.id] = true
+				d.gems = capStat(d.gems + q.gems)
+				changed = true
+				rToast:FireClient(player, string.format("📜 Quête accomplie : %s — +%d 💎", q.title, q.gems))
+			end
+		end
+	end
+	return changed
 end
 
 local function pushStats(player: Player)
 	local session = sessions[player]
 	if not session then return end
+	-- Une quête peut avoir été franchie depuis le dernier envoi : on crédite avant
+	-- de construire l'état, pour que gemmes et quêtes partent à jour.
+	awardQuests(session, player)
+	updateQuestBoard(session)
+	updateTeamBoard(session)
 	rStats:FireClient(player, buildStats(session))
 end
 
@@ -462,7 +628,7 @@ rTrain.OnServerEvent:Connect(function(player)
 	if now - session.lastTrain < Config.Train.repCooldown then return end
 	session.lastTrain = now
 	local gain = Config.Dumbbells[session.data.dumbbell].powerGain
-	session.data.power += gain
+	session.data.power = capStat(session.data.power + gain)
 	updateLeaderstats(session, player)
 	pushStats(player)
 end)
@@ -675,6 +841,7 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	local hitValue = 0   -- somme des multiplicateurs de rareté touchés
 	local best = nil     -- meilleure rareté touchée, pour le retour client
 	local scored = false
+	local saved = false  -- le gardien a détourné le tir (arrivé dans le cadre mais arrêté)
 	local elapsed = 0
 
 	-- PAS DE SIMULATION SOUS-DÉCOUPÉ.
@@ -737,7 +904,15 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 			-- But atteint ? Il faut arriver au fond ET entre les poteaux.
 			if pos.Z >= scoreZ then
 				if math.abs(pos.X - field.origin.X) <= field.goalHalfWidth then
-					scored = true
+					-- Le gardien tente un arrêt ; un tir parfait passe bien plus souvent.
+					local saveChance = if tier.label == "TRÈS BIEN"
+						then Config.Keeper.perfectSaveChance
+						else Config.Keeper.saveChance
+					if math.random() < saveChance then
+						saved = true
+					else
+						scored = true
+					end
 				end
 				-- Dans les deux cas la balle est arrivée au fond : elle s'arrête.
 				finished = true
@@ -756,9 +931,16 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	if scored then
 		field.goalPart.Color = Color3.fromRGB(120, 255, 140)
 		task.delay(0.4, function()
-			field.goalPart.Color = Color3.fromRGB(80, 220, 255)
+			-- Repli sur la couleur de bouche du but (GOAL_MOUTH dans FieldBuilder).
+			field.goalPart.Color = Color3.fromRGB(24, 26, 34)
 		end)
 		FieldBuilder.cheer(field)
+	elseif saved then
+		-- Arrêt du gardien : le fond clignote en rouge un court instant.
+		field.goalPart.Color = Color3.fromRGB(220, 80, 70)
+		task.delay(0.4, function()
+			field.goalPart.Color = Color3.fromRGB(24, 26, 34)
+		end)
 	end
 
 	task.delay(0.15, function() ball:Destroy() end)
@@ -780,11 +962,18 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	local money = value * perHit * moneyMultiplier(session)
 	if scored then
 		money *= S.scoreMultiplier  -- x3 si la balle atteint le fond
+		-- Amélioration « Finisseur » : chaque niveau ajoute un bonus d'argent SUR
+		-- LES BUTS uniquement (cf. Config.GoalBonus).
+		money *= Config.goalBonusMult(session.data.goalLevel or 0)
+		-- Compteur de buts à vie, affiché sur le panneau d'équipe.
+		session.data.goalsScored = (tonumber(session.data.goalsScored) or 0) + 1
 	end
-	money = math.floor(money)
+	-- Borne le gain d'un tir (les multiplicateurs empilés peuvent le faire exploser)
+	-- puis borne les totaux : jamais d'infini (cf. MAX_STAT).
+	money = math.min(math.floor(money), MAX_STAT)
 
-	session.data.money += money
-	session.data.totalEarned += money
+	session.data.money = capStat(session.data.money + money)
+	session.data.totalEarned = capStat(session.data.totalEarned + money)
 	-- Alimente le rythme de gain de la session, d'où sortent les gains hors ligne.
 	session.sessionEarned += money
 	updateLeaderstats(session, player)
@@ -794,6 +983,7 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 		hits = hits,
 		money = money,
 		scored = scored,
+		saved = saved,
 		tier = tier.label,
 		best = best and best.name or nil,
 	})
@@ -816,7 +1006,12 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	end)
 
 	-- Soumet au classement (throttlé côté Leaderboard : ~1 écriture/min/joueur).
-	Leaderboard.submit(player.UserId, session.data.totalEarned)
+	Leaderboard.submit(player.UserId, {
+		earned = session.data.totalEarned,
+		power = session.data.power,
+		rebirths = session.data.rebirths,
+		gems = session.data.gems or 0,
+	})
 end
 
 rShoot.OnServerEvent:Connect(function(player, angleDeg, chargePct)
@@ -935,6 +1130,11 @@ rGift.OnServerEvent:Connect(function(player, payload)
 			-- le rabote, sinon un doigt qui glisse sur le clavier ne donne rien.
 			amount = maxGift
 		end
+		-- Plafond ABSOLU : un don ne dépasse jamais Config.Gift.maxAbsolute (500 $),
+		-- même pour un joueur très riche. On rabote plutôt que d'annuler.
+		if amount > G.maxAbsolute then
+			amount = G.maxAbsolute
+		end
 		session.data.money -= amount
 		tSession.data.money += amount
 		session.lastGift = now
@@ -1003,8 +1203,8 @@ rAdmin.OnServerEvent:Connect(function(player, payload)
 	if payload.kind == "money" then
 		local amount = payload.amount
 		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
-		session.data.money += math.floor(amount)
-		session.data.totalEarned += math.max(0, math.floor(amount))
+		session.data.money = capStat(session.data.money + math.floor(amount))
+		session.data.totalEarned = capStat(session.data.totalEarned + math.max(0, math.floor(amount)))
 		updateLeaderstats(session, player)
 		pushStats(player)
 		rToast:FireClient(player, "[admin] +" .. Config.abbreviate(amount) .. " $")
@@ -1012,10 +1212,17 @@ rAdmin.OnServerEvent:Connect(function(player, payload)
 	elseif payload.kind == "power" then
 		local amount = payload.amount
 		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
-		session.data.power += math.floor(amount)
+		session.data.power = capStat(session.data.power + math.floor(amount))
 		updateLeaderstats(session, player)
 		pushStats(player)
 		rToast:FireClient(player, "[admin] +" .. Config.abbreviate(amount) .. " puissance")
+
+	elseif payload.kind == "gems" then
+		local amount = payload.amount
+		if typeof(amount) ~= "number" or amount ~= amount or amount == math.huge then return end
+		session.data.gems = (tonumber(session.data.gems) or 0) + math.floor(amount)
+		pushStats(player)
+		rToast:FireClient(player, "[admin] +" .. Config.abbreviate(amount) .. " 💎")
 
 	elseif payload.kind == "card" then
 		local rarity = payload.rarity
@@ -1046,6 +1253,12 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 	-- mais tout coûte bien plus cher (voir Config.upgradeCostMultiplier).
 	local costMult = upgradeCostMult(session)
 
+	-- Sans feedback, un achat qu'on ne peut pas payer donnait l'impression que le
+	-- bouton « ne marche pas ». On le dit maintenant, avec le prix qui manque.
+	local function tooPoor(cost: number)
+		rToast:FireClient(player, string.format("💰 Pas assez d'argent : il te faut %s $", Config.abbreviate(cost)))
+	end
+
 	if kind == "dumbbell" then
 		local nxt = Config.Dumbbells[d.dumbbell + 1]
 		if nxt then
@@ -1053,6 +1266,8 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 			if d.money >= cost then
 				d.money -= cost
 				d.dumbbell += 1
+			else
+				tooPoor(cost)
 			end
 		end
 	elseif kind == "ball" then
@@ -1062,6 +1277,8 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 			if d.money >= cost then
 				d.money -= cost
 				d.ball += 1
+			else
+				tooPoor(cost)
 			end
 		end
 	elseif kind == "slot" then
@@ -1083,6 +1300,19 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 		if d.money >= cost then
 			d.money -= cost
 			d.valueLevel += 1
+		else
+			tooPoor(cost)
+		end
+	elseif kind == "goalbonus" then
+		-- FINISSEUR : plus d'argent quand on marque (cf. Config.GoalBonus).
+		local cost = math.floor(Config.goalBonusCost(d.goalLevel or 0) * costMult)
+		if d.money >= cost then
+			d.money -= cost
+			d.goalLevel = (d.goalLevel or 0) + 1
+			rToast:FireClient(player, string.format("🥅 Finisseur : buts x%.1f argent !",
+				Config.goalBonusMult(d.goalLevel)))
+		else
+			tooPoor(cost)
 		end
 	elseif kind == "luck" then
 		-- CHANCE : plafonnée à Config.Luck.maxLevel (x5). Le x20 ne s'obtient que
@@ -1097,6 +1327,33 @@ rBuy.OnServerEvent:Connect(function(player, kind)
 				d.money -= cost
 				d.luck = level + 1
 				rToast:FireClient(player, string.format("🍀 Chance x%s !", Config.luckFromLevel(d.luck)))
+			else
+				tooPoor(cost)
+			end
+		end
+	elseif kind == "gem_value" then
+		-- Achat d'un niveau de valeur joueur payé en GEMMES (cf. Config.Gems).
+		local cost = Config.gemValueCost(d.valueLevel)
+		if (tonumber(d.gems) or 0) >= cost then
+			d.gems -= cost
+			d.valueLevel += 1
+			rToast:FireClient(player, string.format("💎 Valeur joueur +1 (−%d 💎)", cost))
+		else
+			rToast:FireClient(player, string.format("Il te faut %d 💎", cost))
+		end
+	elseif kind == "gem_luck" then
+		-- Achat d'un niveau de chance payé en GEMMES, même plafond que l'achat argent.
+		local level = d.luck or 0
+		if level >= Config.Luck.maxLevel then
+			rToast:FireClient(player, string.format("Chance au maximum (x%s).", Config.luckFromLevel(Config.Luck.maxLevel)))
+		else
+			local cost = Config.gemLuckCost(level)
+			if (tonumber(d.gems) or 0) >= cost then
+				d.gems -= cost
+				d.luck = level + 1
+				rToast:FireClient(player, string.format("💎 Chance x%s (−%d 💎)", Config.luckFromLevel(d.luck), cost))
+			else
+				rToast:FireClient(player, string.format("Il te faut %d 💎", cost))
 			end
 		end
 	end
@@ -1277,6 +1534,29 @@ rTutorial.OnServerEvent:Connect(function(player)
 	if not allow(player, "tutorial", 1) then return end
 	session.data.tutorialDone = true
 	pushStats(player)
+end)
+
+-------------------------------------------------------------------------------
+-- NOM D'ÉQUIPE : choisi librement à la première partie, puis sauvegardé. On ne
+-- le redemande plus (le client n'ouvre la saisie que si teamName est vide).
+--
+-- Le serveur nettoie et borne le texte : pas de nom vide, pas de nom à rallonge.
+-- Un nom déjà défini n'est pas écrasé silencieusement par un client modifié —
+-- mais on autorise le renommage volontaire (le libellé reste éditable côté UI).
+-------------------------------------------------------------------------------
+rSetTeamName.OnServerEvent:Connect(function(player, name)
+	local session = sessions[player]
+	if not session then return end
+	if typeof(name) ~= "string" then return end
+	if not allow(player, "teamname", 1) then return end
+	-- Nettoyage : on enlève les espaces en trop et on borne à 24 caractères.
+	local clean = (name:gsub("^%s+", ""):gsub("%s+$", ""))
+	if clean == "" then return end
+	if #clean > 24 then clean = clean:sub(1, 24) end
+	session.data.teamName = clean
+	updateQuestBoard(session)
+	pushStats(player)
+	rToast:FireClient(player, "🏷 Équipe nommée : " .. clean)
 end)
 
 -------------------------------------------------------------------------------
@@ -1808,7 +2088,7 @@ task.spawn(function()
 		for player, session in sessions do
 			if session.data.afk then
 				local gain = Config.afkPowerPerSecond(Config.Dumbbells[session.data.dumbbell].powerGain) * A.interval
-				session.data.power += gain
+				session.data.power = capStat(session.data.power + gain)
 				updateLeaderstats(session, player)
 				-- L'état complet n'est renvoyé qu'une fois sur trois : la puissance
 				-- monte en continu, mais reconstruire la table de stats chaque
@@ -1960,6 +2240,14 @@ end)
 local function onPlayerAdded(player: Player)
 	local data = DataStore.load(player.UserId)
 
+	-- Filet de sécurité : une vieille sauvegarde a pu retenir une valeur devenue
+	-- infinie avant le plafonnement. On la ramène sous MAX_STAT dès le chargement,
+	-- sinon elle s'afficherait « ∞ » et empêcherait même la sauvegarde (JSON).
+	data.money = capStat(tonumber(data.money) or 0)
+	data.power = capStat(tonumber(data.power) or 0)
+	data.totalEarned = capStat(tonumber(data.totalEarned) or 0)
+	data.gems = capStat(tonumber(data.gems) or 0)
+
 	-- L'équipe est toujours au complet : on complète la collection avec des
 	-- Communs jusqu'au plafond du joueur. Vaut pour la première partie comme
 	-- pour une sauvegarde d'avant (où seuls 4 emplacements étaient ouverts, ou
@@ -2010,8 +2298,8 @@ local function onPlayerAdded(player: Player)
 	if (data.lastSeen or 0) > 0 then
 		offlineGain = Config.offlineEarnings(data.earnPerSec or 0, os.time() - (data.lastSeen or 0))
 		if offlineGain > 0 then
-			data.money += offlineGain
-			data.totalEarned += offlineGain
+			data.money = capStat(data.money + offlineGain)
+			data.totalEarned = capStat(data.totalEarned + offlineGain)
 		end
 	end
 
@@ -2057,8 +2345,11 @@ local function onPlayerAdded(player: Player)
 		spectateReturn = nil,
 		sessionStart = os.clock(),
 		sessionEarned = 0,
+		questBaseline = nil,
 	}
 	sessions[player] = session
+	-- Point zéro des quêtes du cycle en cours (progrès = actuel − cette photo).
+	session.questBaseline = questSnapshot(session)
 
 	refreshPasses(session, player)
 
@@ -2137,7 +2428,12 @@ end
 local function onPlayerRemoving(player: Player)
 	local session = sessions[player]
 	if not session then return end
-	Leaderboard.submit(player.UserId, session.data.totalEarned, true)  -- départ : on force
+	Leaderboard.submit(player.UserId, {
+		earned = session.data.totalEarned,
+		power = session.data.power,
+		rebirths = session.data.rebirths,
+		gems = session.data.gems or 0,
+	}, true)  -- départ : on force
 	stampSession(session)
 	DataStore.save(player.UserId, session.data, true)
 	DataStore.forget(player.UserId)
@@ -2230,17 +2526,46 @@ end)
 -- sur la longueur de base, il se retrouvait planté au milieu du terrain du
 -- joueur du premier plot dès que ses renaissances l'avaient agrandi.
 local maxLength = Config.Field.length * (1 + Config.Rebirth.maxFieldGrowth)
-local gui = FieldBuilder.buildLeaderboardBoard({
+-- Trois écrans côte à côte, un par métrique. Chacun attaché à SA métrique pour
+-- qu'il l'affiche en permanence (plus de rotation sur le grand panneau).
+local mainScreens = FieldBuilder.buildLeaderboardBoard({
 	origin = Config.Field.origin,
 	goalZ = Config.Field.origin.Z + maxLength / 2 + Config.Field.goalDepth,
 })
-Leaderboard.attach(gui)
-table.insert(boards, gui)
+for _, s in mainScreens do
+	Leaderboard.attach(s.gui, s.metric)
+	table.insert(boards, s.gui)
+end
+
+-- Efface les entrées d'admin déjà présentes dans les classements (les futures
+-- soumissions sont déjà bloquées par Leaderboard.submit).
+Leaderboard.purgeAdmins()
 
 task.spawn(function()
 	while true do
 		Leaderboard.refresh()
 		task.wait(30)
+	end
+end)
+
+-------------------------------------------------------------------------------
+-- CYCLE DES QUÊTES : toutes les Config.QuestCycle secondes, les quêtes se
+-- réactualisent — on remet à zéro le point de départ (baseline) et les quêtes
+-- déjà validées, pour que chacun reparte sur de nouveaux objectifs à refaire.
+-------------------------------------------------------------------------------
+task.spawn(function()
+	nextQuestReset = os.clock() + Config.QuestCycle
+	while true do
+		task.wait(5)
+		if os.clock() >= nextQuestReset then
+			nextQuestReset = os.clock() + Config.QuestCycle
+			for player, session in sessions do
+				session.questBaseline = questSnapshot(session)
+				session.data.questsClaimed = {}
+				pushStats(player)
+				rToast:FireClient(player, "📜 Quêtes réactualisées — nouveaux objectifs !")
+			end
+		end
 	end
 end)
 
@@ -2275,7 +2600,9 @@ task.spawn(function()
 			color = Color3.fromRGB(255, 210, 60)
 		end
 		for _, board in boards do
-			local timer = board:FindFirstChild("Timer") :: TextLabel?
+			-- Récursif : le label vit dans le cadre arrondi de la SurfaceGui, et
+			-- tous les écrans n'ont pas de Timer (seul le 1er des trois classements).
+			local timer = board:FindFirstChild("Timer", true) :: TextLabel?
 			if timer then
 				timer.Text = text
 				timer.TextColor3 = color

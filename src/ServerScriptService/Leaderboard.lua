@@ -1,5 +1,10 @@
 --!strict
--- Classement mondial via OrderedDataStore, rafraîchit le panneau in-game.
+-- Classements mondiaux via OrderedDataStore, affichés en rotation sur les panneaux.
+--
+-- Plusieurs classements : Argent total, Puissance, Renaissances. Un seul jeu de
+-- panneaux physiques : refresh() fait tourner le classement affiché (titre +
+-- liste) à chaque appel (toutes les 30 s). Chaque métrique a son propre
+-- OrderedDataStore, donc son propre top 10 mondial.
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -8,113 +13,163 @@ local Config = require(ReplicatedStorage.Shared.Config)
 
 local Leaderboard = {}
 
-local ordered: OrderedDataStore? = nil
+-- SCORE STOCKÉ EN ÉCHELLE LOG pour les métriques qui explosent (argent,
+-- puissance) : un OrderedDataStore ne prend que des entiers et un double perd la
+-- précision au-delà de 2^53. log10(1+v)*1e6 préserve l'ORDRE exactement. Les
+-- petites métriques (renaissances) sont stockées brutes.
+local LOG_SCALE = 1e6
+local MAX_SCORE = 4e8   -- log10 = 400, hors d'atteinte
+
+local function encodeLog(v: number): number
+	if v <= 0 then return 0 end
+	return math.clamp(math.floor(math.log(1 + v, 10) * LOG_SCALE), 0, MAX_SCORE)
+end
+local function decodeLog(value: number): number
+	if value <= 0 then return 0 end
+	return 10 ^ (value / LOG_SCALE) - 1
+end
+
+-- Définition des classements. `store` = suffixe de clé OrderedDataStore ; garder
+-- `_top_v2` pour l'argent préserve le classement déjà en place.
+type Metric = {
+	key: string, title: string, store: string, log: boolean, suffix: string,
+	handle: OrderedDataStore?,
+}
+local METRICS: { Metric } = {
+	{ key = "earned",   title = "Argent total", store = "_top_v2",     log = true,  suffix = " $" },
+	{ key = "power",    title = "Puissance",    store = "_power_v1",   log = true,  suffix = "" },
+	{ key = "rebirths", title = "Renaissances", store = "_rebirth_v1", log = false, suffix = "" },
+	{ key = "gems",     title = "Gemmes",       store = "_gems_v1",    log = false, suffix = " 💎" },
+}
+
 if game.PlaceId ~= 0 then  -- place non publié => OrderedDataStore inaccessible
-	pcall(function()
-		-- Cle v2 : la v1 stockait la valeur brute ecretee a 2^53, elle contient
-		-- donc des scores faux et non comparables entre eux. On repart propre.
-		ordered = DataStoreService:GetOrderedDataStore(Config.SaveKey .. "_top_v2")
-	end)
+	for _, m in METRICS do
+		pcall(function()
+			m.handle = DataStoreService:GetOrderedDataStore(Config.SaveKey .. m.store)
+		end)
+	end
 end
 
--- Plusieurs panneaux peuvent afficher le classement (stade + parvis d'entrée) :
--- ils sont tous alimentés par le même appel à refresh(), et une seule requête
--- OrderedDataStore les sert tous.
-local guis: { SurfaceGui } = {}
-
-function Leaderboard.attach(surfaceGui: SurfaceGui)
-	table.insert(guis, surfaceGui)
+local function encodeFor(m: Metric, v: number): number
+	if m.log then return encodeLog(v) end
+	return math.clamp(math.floor(v), 0, MAX_SCORE)
+end
+local function decodeFor(m: Metric, value: number): number
+	if m.log then return decodeLog(value) end
+	return value
 end
 
--- À appeler quand le panneau disparaît (départ d'un joueur) : sinon la liste
--- grossit indéfiniment avec des panneaux détruits.
+-- Deux sortes de panneaux :
+--   • FIXES  : chacun montre TOUJOURS la même métrique (les trois écrans côte à
+--     côte derrière le terrain — Argent, Puissance, Renaissances). On les attache
+--     avec une `metricKey`.
+--   • TOURNANTS : un seul écran qui fait défiler les métriques à tour de rôle
+--     (le petit panneau du parvis de chaque plot). Attaché sans metricKey.
+type Board = { gui: SurfaceGui, metric: string? }
+local guis: { Board } = {}
+
+function Leaderboard.attach(surfaceGui: SurfaceGui, metricKey: string?)
+	table.insert(guis, { gui = surfaceGui, metric = metricKey })
+end
+
 function Leaderboard.detach(surfaceGui: SurfaceGui)
-	for i, g in guis do
-		if g == surfaceGui then
+	for i, b in guis do
+		if b.gui == surfaceGui then
 			table.remove(guis, i)
 			return
 		end
 	end
 end
 
--- Roblox limite les ecritures OrderedDataStore par cle (~1 / 6 s) : un tir toutes
--- les 0,3 s par joueur saturait la file et faisait echouer les ecritures en
--- silence (elles sont sous pcall). On n'ecrit donc qu'une fois par minute et par
--- joueur, plus une ecriture forcee au depart.
+-- Roblox limite les écritures OrderedDataStore par clé (~1 / 6 s). On n'écrit
+-- donc qu'une fois par minute et par joueur ET PAR MÉTRIQUE, plus une écriture
+-- forcée au départ.
 local SUBMIT_INTERVAL = 60
-local lastSubmitAt: { [number]: number } = {}
-local lastSubmitVal: { [number]: number } = {}
-
--- SCORE STOCKE EN ECHELLE LOG.
---
--- Un OrderedDataStore ne prend que des entiers, et un double perd la precision
--- entiere au-dela de 2^53 (~9 Qa). Or les gains du jeu sont multiplicatifs et
--- depassent 1e36 apres quelques renaissances : ecreter a 2^53 (ce que faisait
--- la version precedente) affichait un montant faux ET donnait la MEME valeur a
--- tous les joueurs au-dessus du plafond, rendant leur classement arbitraire.
---
--- On stocke donc log10(1 + total) * 1e6. Le log est strictement croissant, donc
--- l'ORDRE est exactement preserve ; et 6 decimales d'exposant laissent ~6
--- chiffres significatifs a la relecture, largement assez pour un affichage.
--- Un total de 1e300 ne pese que 3e8, tres loin de la limite.
-local LOG_SCALE = 1e6
-local MAX_SCORE = 4e8   -- log10 = 400, hors d'atteinte
-
-local function encodeScore(total: number): number
-	if total <= 0 then return 0 end
-	return math.clamp(math.floor(math.log(1 + total, 10) * LOG_SCALE), 0, MAX_SCORE)
-end
-
-local function decodeScore(value: number): number
-	if value <= 0 then return 0 end
-	return 10 ^ (value / LOG_SCALE) - 1
+local lastAt: { [string]: { [number]: number } } = {}
+local lastVal: { [string]: { [number]: number } } = {}
+for _, m in METRICS do
+	lastAt[m.key] = {}
+	lastVal[m.key] = {}
 end
 
 -- Joueurs effacés à leur demande : plus aucune soumission jusqu'à la fin de leur
--- session, sinon l'écriture forcée du départ les remettrait au classement.
+-- session.
 local erased: { [number]: boolean } = {}
 
-function Leaderboard.submit(userId: number, totalEarned: number, force: boolean?)
-	if not ordered then return end
+-- `stats` = { earned = , power = , rebirths = }. Chaque métrique présente est
+-- soumise à son propre classement.
+function Leaderboard.submit(userId: number, stats: { [string]: number }, force: boolean?)
 	if erased[userId] then return end
-	if totalEarned ~= totalEarned then return end  -- NaN
-
-	local value = encodeScore(totalEarned)
-	if lastSubmitVal[userId] == value then return end
-
+	-- Les admins ne figurent JAMAIS au classement mondial : ils s'attribuent
+	-- argent/puissance/gemmes pour tester, ce qui fausserait le tableau.
+	if Config.isAdmin(userId) then return end
 	local now = os.clock()
-	if not force and (now - (lastSubmitAt[userId] or -math.huge)) < SUBMIT_INTERVAL then
-		return
-	end
-	lastSubmitAt[userId] = now
-
-	local ok = pcall(function()
-		ordered:SetAsync("u_" .. userId, value)
-	end)
-	if ok then
-		lastSubmitVal[userId] = value
+	for _, m in METRICS do
+		local handle = m.handle
+		local raw = stats[m.key]
+		if handle and raw == raw and raw ~= nil then  -- écarte NaN / manquant
+			local value = encodeFor(m, raw)
+			if lastVal[m.key][userId] ~= value then
+				if force or (now - (lastAt[m.key][userId] or -math.huge)) >= SUBMIT_INTERVAL then
+					lastAt[m.key][userId] = now
+					local ok = pcall(function()
+						(handle :: OrderedDataStore):SetAsync("u_" .. userId, value)
+					end)
+					if ok then lastVal[m.key][userId] = value end
+				end
+			end
+		end
 	end
 end
 
--- Droit à l'oubli : retire le joueur du classement mondial.
+-- Droit à l'oubli : retire le joueur de TOUS les classements.
 function Leaderboard.erase(userId: number): boolean
 	erased[userId] = true
-	lastSubmitVal[userId] = nil
-	if not ordered then return true end
-	for attempt = 1, 3 do
-		local ok = pcall(function()
-			ordered:RemoveAsync("u_" .. userId)
-		end)
-		if ok then return true end
-		task.wait(2 * attempt)
+	local allOk = true
+	for _, m in METRICS do
+		lastVal[m.key][userId] = nil
+		local handle = m.handle
+		if handle then
+			local done = false
+			for attempt = 1, 3 do
+				local ok = pcall(function()
+					(handle :: OrderedDataStore):RemoveAsync("u_" .. userId)
+				end)
+				if ok then done = true; break end
+				task.wait(2 * attempt)
+			end
+			if not done then allOk = false end
+		end
 	end
-	warn(string.format("[BabyFoot] Retrait du classement pour %d ECHOUE : a rejouer.", userId))
-	return false
+	if not allOk then
+		warn(string.format("[BabyFoot] Retrait des classements pour %d ECHOUE : a rejouer.", userId))
+	end
+	return allOk
+end
+
+-- Retire définitivement les admins de TOUS les classements. À appeler au
+-- démarrage : le garde-fou de submit empêche les nouvelles écritures, mais une
+-- entrée d'admin déjà présente (avant ce garde-fou) doit être effacée une fois.
+function Leaderboard.purgeAdmins()
+	for _, uid in Config.Admins do
+		for _, m in METRICS do
+			local handle = m.handle
+			if handle then
+				task.spawn(function()
+					pcall(function()
+						(handle :: OrderedDataStore):RemoveAsync("u_" .. uid)
+					end)
+				end)
+			end
+		end
+	end
 end
 
 function Leaderboard.forget(userId: number)
-	lastSubmitAt[userId] = nil
-	lastSubmitVal[userId] = nil
+	for _, m in METRICS do
+		lastAt[m.key][userId] = nil
+		lastVal[m.key][userId] = nil
+	end
 	erased[userId] = nil
 end
 
@@ -127,45 +182,81 @@ local function nameFor(userId: number): string
 	return ok and name or ("Joueur " .. userId)
 end
 
-local function setAll(text: string)
-	for _, g in guis do
-		local label = g:FindFirstChild("List") :: TextLabel?
-		if label then
-			label.Text = text
-		end
-	end
+local function setGuiChild(gui: SurfaceGui, childName: string, text: string)
+	-- Recherche récursive : les labels vivent désormais dans un cadre arrondi
+	-- (cf. FieldBuilder.boardGui), plus directement sous la SurfaceGui.
+	local label = gui:FindFirstChild(childName, true) :: TextLabel?
+	if label then label.Text = text end
 end
 
-function Leaderboard.refresh()
-	if #guis == 0 then return end
-	if not ordered then
-		setAll("Classement disponible après publication du jeu.")
-		return
+local function metricByKey(key: string): Metric?
+	for _, m in METRICS do
+		if m.key == key then return m end
 	end
+	return nil
+end
 
+-- Rend le titre + la liste d'une métrique (une seule lecture OrderedDataStore).
+-- Résultat mis en cache le temps d'un refresh : trois écrans qui montrent trois
+-- métriques différentes ne font ainsi qu'une lecture chacune, pas trois.
+local function renderMetric(metric: Metric): (string, string)
+	local title = "🏆 " .. string.upper(metric.title)
+	local handle = metric.handle
+	if not handle then
+		return title, "Classement disponible après publication du jeu."
+	end
 	local ok, pages = pcall(function()
-		return ordered:GetSortedAsync(false, 10)
+		return (handle :: OrderedDataStore):GetSortedAsync(false, 10)
 	end)
 	if not ok or not pages then
-		setAll("Classement indisponible (API désactivée ?)")
-		return
+		return title, "Classement indisponible (API désactivée ?)"
 	end
-
 	local rows = {}
 	local rank = 1
 	for _, entry in pages:GetCurrentPage() do
-		-- Parenthèses obligatoires : gsub renvoie la chaîne ET le nombre de
-		-- remplacements, et ce second retour partirait en base de tonumber.
 		local uid = tonumber(((entry.key :: string):gsub("u_", ""))) or 0
 		local medal = rank == 1 and "🥇" or rank == 2 and "🥈" or rank == 3 and "🥉" or (rank .. ".")
-		table.insert(rows, string.format("%s  %s  —  %s $",
-			medal, nameFor(uid), Config.abbreviate(decodeScore(entry.value))))
+		local raw = decodeFor(metric, entry.value)
+		local shown = if metric.log then Config.abbreviate(raw) else tostring(math.floor(raw))
+		-- Nom tronqué : les panneaux sont étroits, un pseudo long débordait du cadre.
+		local name = nameFor(uid)
+		if utf8.len(name) and (utf8.len(name) :: number) > 11 then
+			name = name:sub(1, (utf8.offset(name, 12) :: number) - 1) .. "…"
+		end
+		table.insert(rows, string.format("%s %s  %s%s", medal, name, shown, metric.suffix))
 		rank += 1
 	end
 	if #rows == 0 then
-		setAll("Sois le premier au classement !")
-	else
-		setAll(table.concat(rows, "\n"))
+		return title, "Sois le premier au classement !"
+	end
+	return title, table.concat(rows, "\n")
+end
+
+-- Métrique tournante des panneaux du parvis : avance d'un cran à chaque refresh.
+local metricIndex = 0
+
+function Leaderboard.refresh()
+	if #guis == 0 then return end
+	metricIndex = metricIndex % #METRICS + 1
+	local rotating = METRICS[metricIndex]
+
+	-- Une lecture par métrique et par refresh, réutilisée pour tous les panneaux.
+	local cache: { [string]: { title: string, list: string } } = {}
+	local function rendered(metric: Metric)
+		local c = cache[metric.key]
+		if not c then
+			local t, l = renderMetric(metric)
+			c = { title = t, list = l }
+			cache[metric.key] = c
+		end
+		return c
+	end
+
+	for _, board in guis do
+		local metric = if board.metric then metricByKey(board.metric) or rotating else rotating
+		local c = rendered(metric)
+		setGuiChild(board.gui, "Title", c.title)
+		setGuiChild(board.gui, "List", c.list)
 	end
 end
 

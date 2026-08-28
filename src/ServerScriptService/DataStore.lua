@@ -26,9 +26,18 @@ function DataModule.default()
 	return {
 		money = 0,
 		power = 0,
+		-- NOM D'ÉQUIPE choisi à la première partie. Vide = jamais choisi : le client
+		-- ouvre alors l'écran de saisie. Une fois rempli, on ne le redemande plus.
+		teamName = "",
+		gems = 0,        -- gemmes gagnées aux quêtes (cf. Config.Gems / Config.Quests)
+		-- Quêtes déjà créditées : { [id de quête] = true }. Une quête accomplie ne
+		-- redonne jamais ses gemmes.
+		questsClaimed = {},
 		dumbbell = 1,    -- index dans Config.Dumbbells
 		ball = 1,        -- index dans Config.Balls
 		valueLevel = 0,  -- niveau valeur des joueurs
+		goalLevel = 0,   -- niveau « Finisseur » : bonus d'argent sur les buts (cf. Config.GoalBonus)
+		goalsScored = 0, -- nombre total de buts marqués depuis le début (panneau d'équipe)
 		slots = Config.StartingSlots, -- emplacements débloqués sur les bases
 		cards = {},      -- collection : { {name = "...", rarity = "commun"}, ... }
 		-- Nombre de lancers de dés déjà payés. C'est LUI qui fait monter le prix

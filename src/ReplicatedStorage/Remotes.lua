@@ -25,6 +25,7 @@ local EVENT_NAMES = {
 	"Spectate",     -- client -> serveur : {kind = "start", userId = n} ou {kind = "stop"}
 	"Afk",          -- client -> serveur : interrupteur du mode AFK (bool)
 	"PetResult",    -- serveur -> client : {pet = {...}, cost = n} pour l'animation d'éclosion
+	"SetTeamName",  -- client -> serveur : nom d'équipe choisi à la 1re partie (texte)
 	"Tutorial",     -- client -> serveur : tutoriel terminé (à ne plus rejouer)
 	"ReleaseSeen",  -- client -> serveur : pop-up des nouveautés lu (version en cours)
 	"Challenge",    -- serveur -> client : état du défi du loin + tableau des distances

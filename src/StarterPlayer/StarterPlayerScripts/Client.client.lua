@@ -44,6 +44,7 @@ local rPetResult = Remotes.get("PetResult")
 local rLineup = Remotes.get("Lineup")
 local rSpectate = Remotes.get("Spectate")
 local rAfk = Remotes.get("Afk")
+local rSetTeamName = Remotes.get("SetTeamName")
 
 local ACCENT = Color3.fromRGB(80, 220, 255)
 local GOLD = Color3.fromRGB(255, 200, 50)
@@ -232,12 +233,66 @@ do
 end
 
 -------------------------------------------------------------------------------
+-- ÉCRAN DE CHARGEMENT (corrige le « noir » au démarrage).
+--
+-- StreamingEnabled + plots très éloignés : à l'arrivée, le stade se streame et
+-- l'on fixe un vide noir plusieurs secondes. On couvre l'écran d'un voile opaque
+-- TANT QUE le personnage n'est pas posé sur un sol chargé (plot streamé), puis on
+-- fond le voile. La modale « nomme ton équipe » attend ce moment (loadingDone),
+-- pour ne plus jamais s'afficher sur du noir.
+-------------------------------------------------------------------------------
+loadingDone = false
+wantTeamPrompt = false
+do
+	-- Enfant direct du ScreenGui (pas de `ui`) : indépendant du UIScale, couvre
+	-- tout l'écran. ZIndex très haut pour passer au-dessus de toute l'interface.
+	local cover = make("Frame", {
+		Name = "Chargement", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0,
+		Active = true, ZIndex = 100,
+	}, gui)
+	local msg = make("TextLabel", {
+		Size = UDim2.fromScale(0.8, 0.16), Position = UDim2.fromScale(0.1, 0.42),
+		BackgroundTransparency = 1, Text = "⚽ Chargement de ton stade…",
+		Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = Color3.fromRGB(255, 210, 60), ZIndex = 101,
+	}, cover)
+
+	task.spawn(function()
+		-- Attend le personnage ET un sol chargé sous lui (donc le plot streamé).
+		-- Garde-fou : on ne bloque jamais l'écran plus de 25 s quoi qu'il arrive.
+		local deadline = os.clock() + 25
+		while os.clock() < deadline do
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if hrp then
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { char }
+				local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -60, 0), params)
+				if hit then break end
+			end
+			task.wait(0.2)
+		end
+		task.wait(0.3)
+		TweenService:Create(cover, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(msg, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+		task.wait(0.65)
+		cover.Visible = false
+		loadingDone = true
+		-- Le nom d'équipe a peut-être été demandé pendant le chargement : on l'ouvre
+		-- maintenant, sur un stade visible.
+		if wantTeamPrompt and not teamSubmitted then showTeamPrompt() end
+	end)
+end
+
+-------------------------------------------------------------------------------
 -- Panneau de stats (argent, puissance, renaissances) : collé au bord gauche de
 -- la boutique, qu'elle soit repliée ou ouverte (la boutique ouverte fait 320 de
 -- large, pas seulement son bouton de 150 — l'ancrage tient compte des deux).
 -------------------------------------------------------------------------------
 local statsPanel = make("Frame", {
-	Size = UDim2.fromOffset(260, 130),
+	Size = UDim2.fromOffset(260, 184),
 	Position = UDim2.new(1, -612, 0, 52),
 	BackgroundColor3 = BG,
 	BackgroundTransparency = 0.1,
@@ -262,10 +317,13 @@ local function statLine(order: number): TextLabel
 	}, statsPanel)
 end
 
+local lblTeam = statLine(0)    -- nom de l'équipe, en tête du bandeau
+lblTeam.TextColor3 = GOLD
 local lblMoney = statLine(1)
 local lblPower = statLine(2)
 local lblRebirth = statLine(3)
 local lblMult = statLine(4)
+local lblGems = statLine(5)   -- gemmes gagnées aux quêtes (cf. panneau AMÉLIORATION)
 
 -------------------------------------------------------------------------------
 -- Contrôles bas : visée + charge + tir + entraînement.
@@ -276,6 +334,13 @@ local bottom = make("Frame", {
 	BackgroundTransparency = 1,
 }, ui)
 
+-- afkBtn / afkOn sont pilotés par le handler AFK plus bas dans le script : ils
+-- restent hors du `do` qui suit. Tout le reste des contrôles bas (visée, jauge
+-- de charge, tir, entraînement) est scopé dans ce bloc pour libérer des
+-- registres — le corps du LocalScript frôle la limite Luau de 200 locals.
+local afkBtn
+local afkOn = false
+do
 -- Bouton ENTRAÎNEMENT (gauche)
 local trainBtn = button("🏋️ S'ENTRAÎNER", GOLD, bottom)
 trainBtn.Size = UDim2.fromOffset(200, 90)
@@ -284,11 +349,11 @@ trainBtn.TextSize = 28
 
 -- MODE AFK : la puissance monte toute seule, un peu moins vite qu'à la main.
 -- Sous le bouton d'entraînement, parce que c'est le même geste qu'on remplace.
-local afkBtn = button("💤 AFK : OFF", Color3.fromRGB(120, 130, 150), bottom)
+afkBtn = button("💤 AFK : OFF", Color3.fromRGB(120, 130, 150), bottom)
 afkBtn.Size = UDim2.fromOffset(200, 32)
 afkBtn.Position = UDim2.new(0, 24, 0, 4)
 afkBtn.TextSize = 14
-local afkOn = false
+afkOn = false
 afkBtn.MouseButton1Click:Connect(function()
 	rAfk:FireServer(not afkOn)
 end)
@@ -337,7 +402,7 @@ local function updateAim()
 end
 
 -- Bouton TIR + jauge de charge (droite)
-local shootBtn = button("⚽ TIRER", ACCENT, bottom)
+local shootBtn = button("⚽ TIRER LE BALLON", ACCENT, bottom)
 shootBtn.Size = UDim2.fromOffset(200, 90)
 shootBtn.Position = UDim2.new(1, -224, 0, 40)
 shootBtn.TextSize = 30
@@ -446,10 +511,21 @@ task.spawn(function()
 		task.wait(Config.Train.repCooldown)
 	end
 end)
+end  -- fin du bloc `do` contrôles bas (libère les registres locaux)
 
 -------------------------------------------------------------------------------
 -- Boutique (droite, repliable).
 -------------------------------------------------------------------------------
+-- Ces collections sont mises à jour par les fonctions de rafraîchissement plus
+-- bas : elles restent hors du `do…end` qui suit. Tout le reste des variables de
+-- la boutique et de la boîte « effacer » est scopé dans ce bloc pour libérer des
+-- registres — le corps du LocalScript frôle la limite Luau de 200 variables
+-- locales par fonction (atteinte au panneau admin).
+upgradeButtons = {}
+worldButtons = {}
+eggButtons = {}
+local rebirthBtn
+do
 local shopOpen = false
 local shopToggle = button("🛒 BOUTIQUE", Color3.fromRGB(120, 200, 120), ui)
 shopToggle.Size = UDim2.fromOffset(150, 44)
@@ -489,32 +565,15 @@ local function shopHeader(text: string, order: number, color: Color3)
 	}, shopScroll)
 end
 
--- Fabrique un bouton d'achat + garde une réf pour MAJ des libellés.
-local upgradeButtons: { [string]: TextButton } = {}
-local function upgradeButton(kind: string, order: number)
-	local b = button("…", Color3.fromRGB(70, 130, 200), shopScroll)
-	b.Size = UDim2.new(1, 0, 0, 54)
-	b.TextSize = 16
-	b.LayoutOrder = order
-	b.MouseButton1Click:Connect(function() rBuy:FireServer(kind) end)
-	upgradeButtons[kind] = b
-end
-
-shopHeader("💪 ENTRAÎNEMENT & BALLE", 1, ACCENT)
-upgradeButton("dumbbell", 2)
-upgradeButton("ball", 3)
--- Plus de bouton « emplacement » : l'équipe est complète dès le départ, on
--- améliore la valeur des joueurs et on remplace les Communs aux dés.
-shopHeader("⚽ ÉQUIPE", 4, GOLD)
-upgradeButton("value", 5)
--- CHANCE : améliore ce que les dés sortent. Plafonnée à x5 côté serveur, le x20
--- est une passe Robux à part (Config.LuckPassMultiplier).
-upgradeButton("luck", 6)
+-- Les AMÉLIORATIONS (haltère, balle, valeur, chance) ont quitté la boutique :
+-- elles vivent dans le panneau AMÉLIORATION (bouton carré en bas à gauche, plus
+-- bas). La boutique ne garde que mondes, œufs, renaissance et passes. La table
+-- globale `upgradeButtons` est peuplée là-bas, pas ici.
 -- MONDES : un bouton par monde. Le même bouton sert à débloquer (tant qu'on ne
 -- l'a pas) puis à s'y téléporter — c'est le libellé qui change, pas la place,
 -- sinon les boutons dansent d'une mise à jour de stats à l'autre.
 shopHeader("🌍 MONDES", 7, Color3.fromRGB(150, 220, 150))
-local worldButtons: { TextButton } = {}
+worldButtons = {}
 for i in Config.Worlds do
 	local b = button("…", Color3.fromRGB(80, 130, 90), shopScroll)
 	b.Size = UDim2.new(1, 0, 0, 50)
@@ -537,7 +596,7 @@ end
 -- la même chose (on clique l'œuf), c'est le même chemin serveur — ce raccourci
 -- évite de traverser le stade quand on enchaîne les ouvertures.
 shopHeader("🥚 ŒUFS À PETS", 11, Color3.fromRGB(255, 190, 120))
-local eggButtons: { TextButton } = {}
+eggButtons = {}
 for i = 1, 3 do
 	local b = button("…", Color3.fromRGB(200, 150, 90), shopScroll)
 	b.Size = UDim2.new(1, 0, 0, 50)
@@ -551,7 +610,7 @@ for i = 1, 3 do
 end
 
 shopHeader("🔄 RENAISSANCE", 15, Color3.fromRGB(255, 120, 200))
-local rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
+rebirthBtn = button("…", Color3.fromRGB(255, 120, 200), shopScroll)
 rebirthBtn.Size = UDim2.new(1, 0, 0, 54); rebirthBtn.TextSize = 16; rebirthBtn.LayoutOrder = 16
 rebirthBtn.MouseButton1Click:Connect(function() rRebirth:FireServer() end)
 
@@ -673,6 +732,7 @@ eraseBtn.MouseButton1Click:Connect(function()
 	showErase(1)
 	eraseDim.Visible = true
 end)
+end  -- fin du bloc `do` boutique + effacer (libère les registres locaux)
 
 -------------------------------------------------------------------------------
 -- MUSIQUE D'AMBIANCE : en boucle, côté client, avec bouton muet.
@@ -738,10 +798,13 @@ local squadLabel = make("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left,
 }, ui)
 
-local collecToggle = button("👥 COLLECTION", Color3.fromRGB(150, 110, 235), ui)
-collecToggle.Size = UDim2.fromOffset(200, 40)
-collecToggle.Position = UDim2.fromOffset(16, 144)
-collecToggle.TextSize = 16
+-- COÉQUIPIERS (ta collection / composition d'équipe) : bouton CARRÉ en bas à
+-- gauche, juste au-dessus du bouton s'entraîner (dans le cadre `bottom`), à côté
+-- du bouton carré AMÉLIORATION. Ancré au bas de l'écran plutôt qu'en colonne.
+local collecToggle = button("👥\nÉQUIPE", Color3.fromRGB(150, 110, 235), ui)
+collecToggle.Size = UDim2.fromOffset(66, 66)
+collecToggle.Position = UDim2.new(0, 98, 1, -244)
+collecToggle.TextSize = 14
 
 -- Les panneaux de la colonne de gauche occupent tous le même rectangle : un seul
 -- peut être ouvert à la fois, sinon ils se recouvrent.
@@ -788,6 +851,153 @@ local collecPanel = sidePanel(Color3.fromRGB(150, 110, 235))
 local collecScroll = panelScroll(collecPanel)
 
 collecToggle.MouseButton1Click:Connect(function() togglePanel(collecPanel) end)
+
+-------------------------------------------------------------------------------
+-- PANNEAU AMÉLIORATION : les améliorations retirées de la boutique. On y achète
+-- haltère / balle / valeur / chance en argent, et directement valeur / chance en
+-- GEMMES (gagnées aux quêtes). Ouvert par un bouton CARRÉ en bas à gauche, au-
+-- dessus du bouton s'entraîner.
+--
+-- Scopé dans un `do` : le corps du LocalScript frôle la limite Luau de 200
+-- variables locales. Les libellés sont mis à jour via les tables GLOBALES
+-- `upgradeButtons` (argent) et `gemButtons` (gemmes), lues par le handler stats.
+-------------------------------------------------------------------------------
+gemButtons = {}
+do
+	local upgToggle = button("🔧\nAMÉLIO", Color3.fromRGB(70, 160, 230), ui)
+	upgToggle.Size = UDim2.fromOffset(66, 66)
+	upgToggle.Position = UDim2.new(0, 24, 1, -244)
+	upgToggle.TextSize = 14
+
+	local upgPanel = sidePanel(Color3.fromRGB(70, 160, 230))
+	local upgScroll = panelScroll(upgPanel)
+	upgToggle.MouseButton1Click:Connect(function() togglePanel(upgPanel) end)
+
+	local function upgHeader(text: string, order: number, color: Color3)
+		make("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+			Text = text, Font = Enum.Font.GothamBlack, TextScaled = true,
+			TextColor3 = color, TextXAlignment = Enum.TextXAlignment.Left,
+			LayoutOrder = order,
+		}, upgScroll)
+	end
+
+	-- Achat en ARGENT : peuple `upgradeButtons[kind]`.
+	local function moneyUpgrade(kind: string, order: number)
+		local b = button("…", Color3.fromRGB(70, 130, 200), upgScroll)
+		b.Size = UDim2.new(1, 0, 0, 52)
+		b.TextSize = 15
+		b.LayoutOrder = order
+		b.MouseButton1Click:Connect(function() rBuy:FireServer(kind) end)
+		upgradeButtons[kind] = b
+	end
+
+	-- Achat en GEMMES : peuple `gemButtons[kind]` (kind = "gem_value" | "gem_luck").
+	local function gemUpgrade(kind: string, order: number)
+		local b = button("…", Color3.fromRGB(150, 110, 235), upgScroll)
+		b.Size = UDim2.new(1, 0, 0, 48)
+		b.TextSize = 15
+		b.LayoutOrder = order
+		b.MouseButton1Click:Connect(function() rBuy:FireServer(kind) end)
+		gemButtons[kind] = b
+	end
+
+	upgHeader("💪 ENTRAÎNEMENT & BALLE", 1, ACCENT)
+	moneyUpgrade("dumbbell", 2)
+	moneyUpgrade("ball", 3)
+	upgHeader("⚽ VALEUR & CHANCE (argent)", 4, GOLD)
+	moneyUpgrade("value", 5)
+	moneyUpgrade("luck", 6)
+	upgHeader("🥅 FINISSEUR (argent sur les buts)", 7, Color3.fromRGB(120, 255, 160))
+	moneyUpgrade("goalbonus", 8)
+	upgHeader("💎 ACHETER EN GEMMES", 9, Color3.fromRGB(180, 130, 255))
+	gemUpgrade("gem_value", 10)
+	gemUpgrade("gem_luck", 11)
+end
+
+-------------------------------------------------------------------------------
+-- NOM D'ÉQUIPE : à la toute première partie (teamName vide), on demande au
+-- joueur de nommer son équipe. Une fois envoyé, le serveur le sauvegarde et ne
+-- le redemande plus (le handler stats n'ouvre l'écran que si teamName est vide).
+--
+-- `showTeamPrompt` est global : le handler stats l'appelle. Modale construite une
+-- fois, réaffichable, scopée dans un `do` pour ménager les registres.
+-------------------------------------------------------------------------------
+teamPromptOpen = false
+teamSubmitted = false
+do
+	local overlay = make("Frame", {
+		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false,
+		-- Active = capte le clic : tant qu'on nomme son équipe, on ne clique pas par
+		-- mégarde un bouton du jeu derrière la modale.
+		Active = true, ZIndex = 50,
+	}, ui)
+
+	local box = make("Frame", {
+		Size = UDim2.fromOffset(420, 220), Position = UDim2.new(0.5, -210, 0.5, -110),
+		BackgroundColor3 = BG, BorderSizePixel = 0, ZIndex = 51,
+	}, overlay)
+	corner(box, 16)
+	make("UIStroke", { Color = Color3.fromRGB(150, 110, 235), Thickness = 2 }, box)
+	make("UIPadding", {
+		PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18),
+		PaddingTop = UDim.new(0, 16), PaddingBottom = UDim.new(0, 16),
+	}, box)
+	make("UIListLayout", { Padding = UDim.new(0, 12),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder }, box)
+
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1,
+		Text = "🏷 NOMME TON ÉQUIPE", Font = Enum.Font.GothamBlack, TextScaled = true,
+		TextColor3 = Color3.fromRGB(240, 240, 255), ZIndex = 51,
+	}, box)
+	make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, LayoutOrder = 2,
+		Text = "Choisis librement — ce nom est sauvegardé, on ne te le redemandera plus.",
+		Font = Enum.Font.Gotham, TextWrapped = true, TextSize = 15,
+		TextColor3 = Color3.fromRGB(200, 200, 215), ZIndex = 51,
+	}, box)
+
+	local input = make("TextBox", {
+		Size = UDim2.new(1, 0, 0, 46), LayoutOrder = 3,
+		BackgroundColor3 = PANEL, BorderSizePixel = 0,
+		Text = "", PlaceholderText = "Nom de ton équipe…",
+		Font = Enum.Font.GothamBold, TextScaled = true,
+		TextColor3 = Color3.fromRGB(240, 240, 255),
+		ClearTextOnFocus = false, ZIndex = 51,
+	}, box)
+	corner(input, 10)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, input)
+
+	local validate = button("✅ VALIDER", Color3.fromRGB(90, 200, 130), box)
+	validate.Size = UDim2.new(1, 0, 0, 48)
+	validate.LayoutOrder = 4
+	validate.TextSize = 20
+	validate.ZIndex = 51
+
+	local function submit()
+		local name = (input.Text:gsub("^%s+", ""):gsub("%s+$", ""))
+		if name == "" then return end
+		rSetTeamName:FireServer(name)
+		-- Empêche la réouverture entre l'envoi et la confirmation serveur : tant que
+		-- teamName reste vide côté stats, le handler pourrait rouvrir la modale.
+		teamSubmitted = true
+		overlay.Visible = false
+		teamPromptOpen = false
+	end
+	validate.MouseButton1Click:Connect(submit)
+	input.FocusLost:Connect(function(enterPressed)
+		if enterPressed then submit() end
+	end)
+
+	function showTeamPrompt()
+		if teamPromptOpen then return end
+		teamPromptOpen = true
+		overlay.Visible = true
+	end
+end
 
 local function collecLine(text: string, color: Color3, order: number, height: number)
 	make("TextLabel", {
@@ -1887,10 +2097,17 @@ adminPowerBtn.MouseButton1Click:Connect(function()
 	if a then rAdmin:FireServer({ kind = "power", amount = a }) end
 end)
 
-adminHeader("👤 CARTES", 5)
-local adminCount = adminBox("Combien ? (1-50)", 6)
-local adminName = adminBox("Nom précis (vide = au hasard)", 7)
-local adminOrder = 8
+local adminGemsBtn = button("+ GEMMES 💎", Color3.fromRGB(180, 130, 255), adminScroll)
+adminGemsBtn.Size = UDim2.new(1, 0, 0, 32); adminGemsBtn.TextSize = 14; adminGemsBtn.LayoutOrder = 5
+adminGemsBtn.MouseButton1Click:Connect(function()
+	local a = tonumber(adminAmount.Text)
+	if a then rAdmin:FireServer({ kind = "gems", amount = a }) end
+end)
+
+adminHeader("👤 CARTES", 6)
+local adminCount = adminBox("Combien ? (1-50)", 7)
+local adminName = adminBox("Nom précis (vide = au hasard)", 8)
+local adminOrder = 9
 for _, r in Config.Rarities do
 	local b = button("+ " .. string.upper(r.name), r.color, adminScroll)
 	b.Size = UDim2.new(1, 0, 0, 30); b.TextSize = 13; b.LayoutOrder = adminOrder
@@ -2005,7 +2222,12 @@ rShotResult.OnClientEvent:Connect(function(res)
 
 	local tier = res.tier and ("  •  " .. res.tier) or ""
 	if res.best then tier ..= "  •  " .. res.best end
-	if res.scored then
+	if res.saved then
+		buzz(0.6, 0.3)
+		toast(string.format("🧤 ARRÊT DU GARDIEN ! %d touchés  •  +%s $%s",
+			res.hits, Config.abbreviate(res.money), tier),
+			Color3.fromRGB(210, 120, 50))
+	elseif res.scored then
 		buzz(1, 0.35)
 		toast(string.format("🎯 BUT ! %d touchés  •  +%s $ (x%d)%s",
 			res.hits, Config.abbreviate(res.money), Config.Shot.scoreMultiplier, tier),
@@ -2102,11 +2324,21 @@ applyAmbiance(1)
 -- MAJ des stats + libellés de la boutique.
 -------------------------------------------------------------------------------
 rStats.OnClientEvent:Connect(function(s)
+	-- Première partie : pas encore de nom d'équipe → on demande, mais seulement
+	-- une fois le stade chargé (loadingDone), jamais sur l'écran de chargement.
+	if (s.teamName == nil or s.teamName == "") and not teamSubmitted then
+		wantTeamPrompt = true
+		if loadingDone then showTeamPrompt() end
+	else
+		wantTeamPrompt = false
+	end
 	lastMoney = s.money or 0
 	lblMoney.Text = "💰 " .. Config.abbreviate(s.money) .. " $"
 	lblPower.Text = "💪 Puissance : " .. Config.abbreviate(s.power)
 	lblRebirth.Text = "🔄 Renaissances : " .. s.rebirths
 	lblMult.Text = "✖ Multiplicateur : x" .. Config.abbreviate(s.moneyMult)
+	lblGems.Text = "💎 Gemmes : " .. Config.abbreviate(s.gems or 0)
+	lblTeam.Text = "🏷 " .. (s.teamName ~= nil and s.teamName ~= "" and s.teamName or "Équipe")
 
 	local db = upgradeButtons.dumbbell
 	if s.nextDumbbell then
@@ -2149,6 +2381,13 @@ rStats.OnClientEvent:Connect(function(s)
 		Config.abbreviate(s.playerValue), Config.abbreviate(s.playerValueCost))
 	upgradeButtons.value.BackgroundColor3 = s.money >= s.playerValueCost and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(200, 150, 60)
 
+	local gbBtn = upgradeButtons.goalbonus
+	if gbBtn then
+		gbBtn.Text = string.format("🥅 But +argent (act. x%.1f)\n%s $",
+			s.goalBonusMult or 1, Config.abbreviate(s.goalBonusCost or 0))
+		gbBtn.BackgroundColor3 = s.money >= (s.goalBonusCost or 0) and Color3.fromRGB(70, 160, 90) or Color3.fromRGB(70, 130, 200)
+	end
+
 	rebirthBtn.Text = string.format("🔄 Renaître → x%s\nCoût : %s $",
 		Config.abbreviate(s.nextRebirthMult), Config.abbreviate(s.rebirthCost))
 	rebirthBtn.BackgroundColor3 = s.money >= s.rebirthCost and Color3.fromRGB(255, 120, 200) or Color3.fromRGB(120, 80, 110)
@@ -2163,6 +2402,27 @@ rStats.OnClientEvent:Connect(function(s)
 	else
 		luckBtn.Text = string.format("🍀 Chance MAX (niv. %d)\nact. x%s", s.luckLevel, fmtMult(s.luckMult))
 		luckBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+	end
+
+	-- ACHATS EN GEMMES : valeur joueur (toujours dispo) et chance (tant que pas au
+	-- max). Le bouton s'allume quand on a de quoi payer.
+	local gems = s.gems or 0
+	local gvBtn = gemButtons.gem_value
+	if gvBtn then
+		local cost = s.gemValueCost or 0
+		gvBtn.Text = string.format("💎 Valeur joueur +1\n%s 💎", Config.abbreviate(cost))
+		gvBtn.BackgroundColor3 = gems >= cost and Color3.fromRGB(150, 110, 235) or Color3.fromRGB(95, 85, 130)
+	end
+	local glBtn = gemButtons.gem_luck
+	if glBtn then
+		if s.gemLuckCost then
+			glBtn.Text = string.format("💎 Chance +1 (niv. %d/%d)\n%s 💎",
+				s.luckLevel, s.luckMax, Config.abbreviate(s.gemLuckCost))
+			glBtn.BackgroundColor3 = gems >= s.gemLuckCost and Color3.fromRGB(150, 110, 235) or Color3.fromRGB(95, 85, 130)
+		else
+			glBtn.Text = "🍀 Chance MAX"
+			glBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 110)
+		end
 	end
 
 	-- MONDES : débloqué → bouton de téléportation ; pas encore → bouton d'achat

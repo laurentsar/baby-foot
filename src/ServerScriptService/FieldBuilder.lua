@@ -31,47 +31,85 @@ end
 -- Contenu d'un panneau de classement : titre, liste des 10 premiers, bandeau du
 -- compte à rebours. Partagé par le panneau du stade et celui du parvis — les
 -- deux sont ensuite alimentés par Leaderboard.attach.
-function FieldBuilder.boardGui(surface: BasePart, face: Enum.NormalId): SurfaceGui
+-- `accent` colore le bandeau de titre (chaque classement a sa couleur quand ils
+-- sont côte à côte). `showTimer` : n'afficher le compte à rebours du coup de
+-- sifflet que sur un seul des trois écrans, sinon on le répète trois fois.
+function FieldBuilder.boardGui(surface: BasePart, face: Enum.NormalId,
+	accent: Color3?, showTimer: boolean?): SurfaceGui
+	local ACC = accent or Color3.fromRGB(255, 180, 40)
+	local hasTimer = showTimer ~= false   -- par défaut oui (panneaux du parvis)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "ClassementGui"
 	gui.Face = face
-	gui.CanvasSize = Vector2.new(900, 520)
+	-- Canvas plus compact et net qu'avant (900x520) : le panneau physique est lui
+	-- aussi plus petit, l'ensemble se lit mieux de loin.
+	gui.CanvasSize = Vector2.new(520, 620)
 	gui.Parent = surface
 
+	-- Fond arrondi + léger dégradé : c'est ce qui fait « joli » sur une surface
+	-- plate. Tout le contenu vit dans ce cadre, avec une marge.
+	local root = Instance.new("Frame")
+	root.Name = "Root"
+	root.Size = UDim2.fromScale(1, 1)
+	root.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+	root.BorderSizePixel = 0
+	root.Parent = gui
+	local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0, 26); rc.Parent = root
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(Color3.fromRGB(26, 30, 44), Color3.fromRGB(12, 13, 20))
+	grad.Parent = root
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = ACC; stroke.Thickness = 3; stroke.Transparency = 0.15; stroke.Parent = root
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 18); pad.PaddingRight = UDim.new(0, 18)
+	pad.PaddingTop = UDim.new(0, 14); pad.PaddingBottom = UDim.new(0, 14)
+	pad.Parent = root
+
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.fromScale(1, 0.14)
-	title.BackgroundColor3 = Color3.fromRGB(255, 180, 40)
-	title.Text = "🏆 CLASSEMENT MONDIAL — Argent total"
+	title.Name = "Title"   -- mis à jour par Leaderboard.refresh
+	title.Size = UDim2.fromScale(1, 0.13)
+	title.BackgroundColor3 = ACC
+	title.Text = "🏆 CLASSEMENT"
 	title.Font = Enum.Font.GothamBlack
 	title.TextScaled = true
-	title.TextColor3 = Color3.fromRGB(20, 20, 20)
-	title.Parent = gui
-
-	-- Bandeau du bas : compte à rebours du prochain coup de sifflet (bonus argent).
-	local timer = Instance.new("TextLabel")
-	timer.Name = "Timer"
-	timer.Position = UDim2.fromScale(0, 0.86)
-	timer.Size = UDim2.fromScale(1, 0.14)
-	timer.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-	timer.Text = "⏱ …"
-	timer.Font = Enum.Font.GothamBlack
-	timer.TextScaled = true
-	timer.TextColor3 = Color3.fromRGB(255, 210, 60)
-	timer.Parent = gui
+	title.TextColor3 = Color3.fromRGB(18, 18, 22)
+	title.Parent = root
+	local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 14); tc.Parent = title
+	local tp = Instance.new("UIPadding")
+	tp.PaddingLeft = UDim.new(0, 10); tp.PaddingRight = UDim.new(0, 10); tp.Parent = title
 
 	local list = Instance.new("TextLabel")
 	list.Name = "List"
 	list.Position = UDim2.fromScale(0, 0.16)
-	list.Size = UDim2.fromScale(1, 0.70)
+	list.Size = UDim2.fromScale(1, if hasTimer then 0.68 else 0.82)
 	list.BackgroundTransparency = 1
 	list.Text = "Chargement…"
 	list.Font = Enum.Font.GothamBold
 	list.TextScaled = false
-	list.TextSize = 34
+	list.TextSize = 22
+	list.TextWrapped = false   -- pas de retour à la ligne : une entrée = une ligne
+	list.LineHeight = 1.2
 	list.TextXAlignment = Enum.TextXAlignment.Left
 	list.TextYAlignment = Enum.TextYAlignment.Top
-	list.TextColor3 = Color3.fromRGB(240, 240, 255)
-	list.Parent = gui
+	list.TextColor3 = Color3.fromRGB(238, 240, 252)
+	list.Parent = root
+
+	-- Bandeau du bas : compte à rebours du prochain coup de sifflet (bonus argent).
+	-- Un seul écran le porte quand les trois sont côte à côte.
+	if hasTimer then
+		local timer = Instance.new("TextLabel")
+		timer.Name = "Timer"
+		timer.Position = UDim2.fromScale(0, 0.87)
+		timer.Size = UDim2.fromScale(1, 0.13)
+		timer.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+		timer.Text = "⏱ …"
+		timer.Font = Enum.Font.GothamBlack
+		timer.TextScaled = true
+		timer.TextColor3 = Color3.fromRGB(255, 210, 60)
+		timer.Parent = root
+		local tmc = Instance.new("UICorner"); tmc.CornerRadius = UDim.new(0, 12); tmc.Parent = timer
+	end
 
 	return gui
 end
@@ -159,20 +197,32 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 	local goalZ = origin.Z + half + F.goalDepth / 2
 	local goalWidth = math.min(width * F.goalWidthRatio * (if bigGoal then Config.BigGoalMultiplier else 1),
 		width - 8)
-	local goal = part("But", Vector3.new(goalWidth, F.wallHeight + 4, F.goalDepth),
-		CFrame.new(origin.X, origin.Y + (F.wallHeight + 4) / 2, goalZ), ACCENT, root, Enum.Material.Neon)
-	goal.Transparency = 0.35
+	-- Bouche du but : un fond sombre et mat, pas un bloc néon coloré. C'est le
+	-- cadre blanc (poteaux + barre) et le filet qui donnent l'allure d'un vrai
+	-- but. GOAL_MOUTH est aussi la couleur de repli après le flash de but
+	-- (cf. Main.server) : la garder synchronisée là-bas.
+	local GOAL_MOUTH = Color3.fromRGB(24, 26, 34)
+	local goalHeight = F.wallHeight + 4
+	local goal = part("But", Vector3.new(goalWidth, goalHeight, F.goalDepth),
+		CFrame.new(origin.X, origin.Y + goalHeight / 2, goalZ), GOAL_MOUTH, root, Enum.Material.SmoothPlastic)
+	goal.Transparency = 0.15
 
-	-- Poteaux + fond plein de chaque côté : on voit où il faut mettre la balle.
+	-- Cadre blanc : deux poteaux + une barre transversale, en plastique mat.
+	local POST = Color3.fromRGB(245, 245, 250)
+	local postZ = goalZ - F.goalDepth / 2
+	local postH = goalHeight + 4
 	for _, side in { -1, 1 } do
-		part("Poteau", Vector3.new(1.6, F.wallHeight + 8, 1.6),
-			CFrame.new(origin.X + side * goalWidth / 2, origin.Y + (F.wallHeight + 8) / 2, goalZ - F.goalDepth / 2),
-			Color3.fromRGB(255, 255, 255), root, Enum.Material.Neon)
+		part("Poteau", Vector3.new(1.6, postH, 1.6),
+			CFrame.new(origin.X + side * goalWidth / 2, origin.Y + postH / 2, postZ),
+			POST, root, Enum.Material.SmoothPlastic)
 		local sidePanel = (width - goalWidth) / 2
 		part("FondPlein", Vector3.new(sidePanel, F.wallHeight, F.goalDepth),
 			CFrame.new(origin.X + side * (goalWidth + sidePanel) / 2,
 				origin.Y + F.wallHeight / 2, goalZ), WALL, root)
 	end
+	-- Barre transversale, posée sur les deux poteaux.
+	part("BarreTransversale", Vector3.new(goalWidth + 1.6, 1.6, 1.6),
+		CFrame.new(origin.X, origin.Y + postH, postZ), POST, root, Enum.Material.SmoothPlastic)
 
 	-- Ligne de but + surface de réparation : c'est ce qui fait lire le fond comme
 	-- un vrai but et pas comme un simple mur lumineux.
@@ -216,23 +266,151 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 
 	-- Mur derrière ton point de tir, PERCÉ au milieu : c'est par ce trou qu'on
 	-- entre depuis l'allée. Deux panneaux de part et d'autre de l'ouverture.
+	--
+	-- RECULÉ (backOffset) : le mur se trouvait à 4 studs derrière le point de tir,
+	-- ce qui laissait une zone de jeu à l'étroit. On le repousse pour dégager de la
+	-- place derrière le tireur — le mur invisible d'arrière (plus bas) suit.
 	local shootZ = origin.Z + F.shootLine
+	local backOffset = 40   -- mur d'entrée bien reculé : zone de jeu large et dégagée
+	local wallZ = shootZ - backOffset
 	local gap = Config.Entrance.pathWidth + 4
 	local panel = (width - gap) / 2
 	for _, side in { -1, 1 } do
 		part("MurArriere", Vector3.new(panel, F.wallHeight, 2),
-			CFrame.new(origin.X + side * (gap + panel) / 2, origin.Y + F.wallHeight / 2, shootZ - 4),
+			CFrame.new(origin.X + side * (gap + panel) / 2, origin.Y + F.wallHeight / 2, wallZ),
 			WOOD, root)
 	end
 	-- Encadrement du passage, pour qu'on voie l'entrée de loin.
 	for _, side in { -1, 1 } do
 		part("MontantEntree", Vector3.new(2, F.wallHeight + 6, 2.5),
-			CFrame.new(origin.X + side * gap / 2, origin.Y + (F.wallHeight + 6) / 2, shootZ - 4),
+			CFrame.new(origin.X + side * gap / 2, origin.Y + (F.wallHeight + 6) / 2, wallZ),
 			Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
 	end
 	part("LinteauEntree", Vector3.new(gap + 4, 2, 2.5),
-		CFrame.new(origin.X, origin.Y + F.wallHeight + 5, shootZ - 4),
+		CFrame.new(origin.X, origin.Y + F.wallHeight + 5, wallZ),
 		Color3.fromRGB(255, 210, 60), root, Enum.Material.Neon)
+
+	-- PANNEAUX de la zone de tir, à ton nom d'équipe : QUÊTES à gauche, STATS
+	-- D'ÉQUIPE à droite. Face Back = le +Z, côté où se tient le tireur (il est à un
+	-- Z plus grand que le mur). Remplis côté serveur (updateQuestBoard /
+	-- updateTeamBoard) ; ici on ne pose que le support et les labels.
+	local questGui
+	local teamGui
+	do
+		local leftX = origin.X - (gap + panel) / 2
+		local boardW = math.min(panel - 4, 40)
+		-- Panneau plus haut que le mur : il monte au-dessus pour loger reco + quêtes.
+		local qboard = part("PanneauQuetes", Vector3.new(boardW, 16, 0.5),
+			CFrame.new(leftX, origin.Y + 8, wallZ + 1.1),
+			Color3.fromRGB(14, 16, 24), root, Enum.Material.SmoothPlastic)
+		questGui = Instance.new("SurfaceGui")
+		questGui.Name = "QuetesGui"
+		questGui.Face = Enum.NormalId.Back
+		questGui.CanvasSize = Vector2.new(560, 360)
+		questGui.Parent = qboard
+		local qroot = Instance.new("Frame")
+		qroot.Size = UDim2.fromScale(1, 1)
+		qroot.BackgroundTransparency = 1
+		qroot.Parent = questGui
+		local qpad = Instance.new("UIPadding")
+		qpad.PaddingLeft = UDim.new(0, 14); qpad.PaddingRight = UDim.new(0, 14)
+		qpad.PaddingTop = UDim.new(0, 10); qpad.PaddingBottom = UDim.new(0, 10)
+		qpad.Parent = qroot
+		local team = Instance.new("TextLabel")
+		team.Name = "Team"
+		team.Size = UDim2.fromScale(1, 0.16)
+		team.BackgroundColor3 = Color3.fromRGB(150, 110, 235)
+		team.Text = "📜 QUÊTES"
+		team.Font = Enum.Font.GothamBlack
+		team.TextScaled = true
+		team.TextColor3 = Color3.fromRGB(245, 245, 255)
+		team.Parent = qroot
+		local qtc = Instance.new("UICorner"); qtc.CornerRadius = UDim.new(0, 10); qtc.Parent = team
+		local qlist = Instance.new("TextLabel")
+		qlist.Name = "List"
+		qlist.Position = UDim2.fromScale(0, 0.19)
+		qlist.Size = UDim2.fromScale(1, 0.81)
+		qlist.BackgroundTransparency = 1
+		qlist.Text = "…"
+		qlist.Font = Enum.Font.GothamBold
+		qlist.TextSize = 19
+		qlist.LineHeight = 1.12
+		qlist.TextXAlignment = Enum.TextXAlignment.Left
+		qlist.TextYAlignment = Enum.TextYAlignment.Top
+		qlist.TextColor3 = Color3.fromRGB(232, 234, 246)
+		qlist.Parent = qroot
+	end
+
+	-- PANNEAU STATS D'ÉQUIPE (mur de droite) : même système que le classement, mais
+	-- tes chiffres à toi depuis le début (buts, argent, puissance, gemmes…).
+	do
+		local rightX = origin.X + (gap + panel) / 2
+		local boardW = math.min(panel - 4, 40)
+		local tboard = part("PanneauEquipe", Vector3.new(boardW, 16, 0.5),
+			CFrame.new(rightX, origin.Y + 8, wallZ + 1.1),
+			Color3.fromRGB(14, 16, 24), root, Enum.Material.SmoothPlastic)
+		teamGui = Instance.new("SurfaceGui")
+		teamGui.Name = "EquipeGui"
+		teamGui.Face = Enum.NormalId.Back
+		teamGui.CanvasSize = Vector2.new(560, 360)
+		teamGui.Parent = tboard
+		local troot = Instance.new("Frame")
+		troot.Size = UDim2.fromScale(1, 1)
+		troot.BackgroundTransparency = 1
+		troot.Parent = teamGui
+		local tpad = Instance.new("UIPadding")
+		tpad.PaddingLeft = UDim.new(0, 14); tpad.PaddingRight = UDim.new(0, 14)
+		tpad.PaddingTop = UDim.new(0, 10); tpad.PaddingBottom = UDim.new(0, 10)
+		tpad.Parent = troot
+		local tteam = Instance.new("TextLabel")
+		tteam.Name = "Team"
+		tteam.Size = UDim2.fromScale(1, 0.16)
+		tteam.BackgroundColor3 = Color3.fromRGB(255, 200, 60)
+		tteam.Text = "📊 STATS"
+		tteam.Font = Enum.Font.GothamBlack
+		tteam.TextScaled = true
+		tteam.TextColor3 = Color3.fromRGB(20, 20, 24)
+		tteam.Parent = troot
+		local ttc = Instance.new("UICorner"); ttc.CornerRadius = UDim.new(0, 10); ttc.Parent = tteam
+		local tlist = Instance.new("TextLabel")
+		tlist.Name = "List"
+		tlist.Position = UDim2.fromScale(0, 0.19)
+		tlist.Size = UDim2.fromScale(1, 0.81)
+		tlist.BackgroundTransparency = 1
+		tlist.Text = "…"
+		tlist.Font = Enum.Font.GothamBold
+		tlist.TextSize = 26
+		tlist.LineHeight = 1.15
+		tlist.TextXAlignment = Enum.TextXAlignment.Left
+		tlist.TextYAlignment = Enum.TextYAlignment.Top
+		tlist.TextColor3 = Color3.fromRGB(232, 234, 246)
+		tlist.Parent = troot
+	end
+
+	-- AFFICHE AU-DESSUS de l'entrée (banderole de tribune) : posée PLUS HAUT que le
+	-- linteau pour ne PAS barrer le passage (elle traînait en plein milieu de
+	-- l'ouverture). Largeur limitée à l'ouverture pour ne pas mordre sur les
+	-- panneaux Quêtes/Stats. Contenu fixe.
+	do
+		local banner = part("Affiche", Vector3.new(gap + 6, 4.5, 0.4),
+			CFrame.new(origin.X, origin.Y + F.wallHeight + 8, wallZ + 1.1),
+			Color3.fromRGB(214, 38, 48), root, Enum.Material.SmoothPlastic)
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Back
+		sg.CanvasSize = Vector2.new(420, 80)
+		sg.Parent = banner
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundColor3 = Color3.fromRGB(214, 38, 48)
+		lbl.Text = "⚽ BABY-FOOT POWER — VISE LE SOMMET 🏆"
+		lbl.Font = Enum.Font.GothamBlack
+		lbl.TextScaled = true
+		lbl.TextColor3 = Color3.fromRGB(245, 245, 250)
+		lbl.Parent = sg
+		local lp = Instance.new("UIPadding")
+		lp.PaddingLeft = UDim.new(0, 8); lp.PaddingRight = UDim.new(0, 8)
+		lp.Parent = lbl
+	end
 
 	-- Point de tir (marqueur au sol)
 	local shootPad = part("PointDeTir", Vector3.new(10, 1.2, 10),
@@ -296,7 +474,7 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 	local invPanel = (width + 8 - gap) / 2
 	for _, side in { -1, 1 } do
 		invisibleWall("MurInvArriere", Vector3.new(invPanel, fh, 1),
-			CFrame.new(origin.X + side * (gap + invPanel) / 2, origin.Y + fh / 2, shootZ - 10))
+			CFrame.new(origin.X + side * (gap + invPanel) / 2, origin.Y + fh / 2, wallZ - 6))
 	end
 
 	-- Dossier des figurines (peuplé dynamiquement par le moteur de tir)
@@ -319,6 +497,8 @@ function FieldBuilder.build(bigGoal: boolean, originOverride: Vector3?, sizeMult
 		crowd = {},
 		bases = Config.basesWithExtra(extraSlots),
 		world = world,
+		questGui = questGui,   -- panneau de quêtes, rempli par updateQuestBoard (serveur)
+		teamGui = teamGui,     -- panneau stats d'équipe, rempli par updateTeamBoard (serveur)
 	}
 
 	FieldBuilder.buildBases(field)
@@ -787,22 +967,33 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 				halo.Parent = fig
 			end
 
-			-- Bras, chaussettes et chaussures : uniquement pour les tenues qui les
-			-- déclarent. Les ajouter à toutes les figurines aurait triplé le nombre
-			-- de parts par plot pour un détail invisible à distance de tir.
-			if J.arms then
-				for _, side in { -1, 1 } do
-					local arm = Instance.new("Part")
-					arm.Name = "Bras"
-					arm.Size = Vector3.new(1.1, 3.4, 1.6)
-					arm.Anchored = true
-					arm.CanCollide = false
-					arm.CastShadow = false
-					arm.Color = J.arms
-					arm.Material = Enum.Material.SmoothPlastic
-					arm.CFrame = fig.CFrame + Vector3.new(side * 2.05, 0.9, 0)
-					arm.Parent = fig
-				end
+			-- BRAS + MAINS, sur TOUTES les figurines (elles ont enfin des membres).
+			-- Le bras prend la couleur de peau déclarée (J.arms) ou, à défaut, celle
+			-- de la tête ; la main est une petite boule couleur peau au bout du bras.
+			local skin = J.arms or J.head
+			for _, side in { -1, 1 } do
+				local arm = Instance.new("Part")
+				arm.Name = "Bras"
+				arm.Size = Vector3.new(1.1, 3.2, 1.5)
+				arm.Anchored = true
+				arm.CanCollide = false
+				arm.CastShadow = false
+				arm.Color = J.body   -- manche du maillot
+				arm.Material = if J.glow then Enum.Material.Neon else Enum.Material.SmoothPlastic
+				arm.CFrame = fig.CFrame + Vector3.new(side * 2.05, 0.9, 0)
+				arm.Parent = fig
+
+				local hand = Instance.new("Part")
+				hand.Name = "Main"
+				hand.Shape = Enum.PartType.Ball
+				hand.Size = Vector3.new(1.25, 1.25, 1.25)
+				hand.Anchored = true
+				hand.CanCollide = false
+				hand.CastShadow = false
+				hand.Color = skin
+				hand.Material = Enum.Material.SmoothPlastic
+				hand.CFrame = fig.CFrame + Vector3.new(side * 2.05, -1.0, 0)
+				hand.Parent = fig
 			end
 
 			-- Chaussettes et chaussures : des bandeaux autour du bas du corps, pas
@@ -822,17 +1013,20 @@ function FieldBuilder.placeSquad(field, squad, unlockedSlots: number)
 				sock.Parent = fig
 			end
 
-			if J.shoes then
-				local shoe = Instance.new("Part")
-				shoe.Name = "Chaussures"
-				shoe.Size = Vector3.new(3.08, 0.26, 3.2)
-				shoe.Anchored = true
-				shoe.CanCollide = false
-				shoe.CastShadow = false
-				shoe.Color = J.shoes
-				shoe.Material = Enum.Material.SmoothPlastic
-				shoe.CFrame = fig.CFrame - Vector3.new(0, 2.87, 0)
-				shoe.Parent = fig
+			-- PIEDS, sur TOUTES les figurines : deux petites chaussures qui dépassent
+			-- vers l'avant. Couleur de la tenue (J.shoes) ou noir mat par défaut.
+			local shoeColor = J.shoes or Color3.fromRGB(28, 28, 32)
+			for _, side in { -1, 1 } do
+				local foot = Instance.new("Part")
+				foot.Name = "Pied"
+				foot.Size = Vector3.new(1.2, 0.7, 2.3)
+				foot.Anchored = true
+				foot.CanCollide = false
+				foot.CastShadow = false
+				foot.Color = shoeColor
+				foot.Material = Enum.Material.SmoothPlastic
+				foot.CFrame = fig.CFrame + Vector3.new(side * 0.72, -2.9, 0.8)
+				foot.Parent = fig
 			end
 
 			-- Étiquette discrète : taille fixe (pas de TextScaled, qui gonflait le
@@ -1287,6 +1481,40 @@ function FieldBuilder.buildEggPlatform(originOverride: Vector3?, worldIndex: num
 		label.TextStrokeTransparency = 0.25
 		label.Parent = tag
 
+		-- Chances des pets : n'apparaît qu'à l'APPROCHE (MaxDistance court), pour
+		-- ne pas encombrer la vue de loin. Liste chaque pet, son % et son bonus.
+		local chances = Instance.new("BillboardGui")
+		chances.Name = "Chances"
+		chances.Size = UDim2.fromOffset(240, 128)
+		chances.StudsOffset = Vector3.new(0, -2, 0)
+		chances.MaxDistance = 44
+		chances.Parent = shell
+		local chFrame = Instance.new("Frame")
+		chFrame.Size = UDim2.fromScale(1, 1)
+		chFrame.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+		chFrame.BackgroundTransparency = 0.25
+		chFrame.BorderSizePixel = 0
+		chFrame.Parent = chances
+		local chCorner = Instance.new("UICorner")
+		chCorner.CornerRadius = UDim.new(0, 8)
+		chCorner.Parent = chFrame
+		local chLines = { "🎲 CHANCES" }
+		for _, c in Config.eggChances(egg) do
+			table.insert(chLines, string.format("%s  %.1f%%  ×%s", c.name, c.pct, Config.abbreviate(c.mult)))
+		end
+		local chText = Instance.new("TextLabel")
+		chText.Size = UDim2.new(1, -12, 1, -10)
+		chText.Position = UDim2.fromOffset(6, 5)
+		chText.BackgroundTransparency = 1
+		chText.Text = table.concat(chLines, "\n")
+		chText.Font = Enum.Font.GothamBold
+		chText.TextSize = 15
+		chText.TextColor3 = Color3.fromRGB(240, 240, 250)
+		chText.TextStrokeTransparency = 0.4
+		chText.TextXAlignment = Enum.TextXAlignment.Left
+		chText.TextYAlignment = Enum.TextYAlignment.Top
+		chText.Parent = chFrame
+
 		-- Le clic marche à la souris comme au doigt. MaxActivationDistance borné :
 		-- on ouvre l'œuf devant lequel on se trouve, pas celui d'en face.
 		local click = Instance.new("ClickDetector")
@@ -1405,21 +1633,40 @@ function FieldBuilder.hatchAnimation(spot, pet)
 end
 
 -- Grand panneau de classement mondial, placé au fond derrière le but.
-function FieldBuilder.buildLeaderboardBoard(field): SurfaceGui
+-- TROIS classements côte à côte, un par métrique, chacun sur son propre écran
+-- (plus « un seul panneau qui tourne »). Renvoie la liste { {gui, metric}, … }
+-- pour que le serveur attache chaque écran à SA métrique (cf. Leaderboard.attach).
+function FieldBuilder.buildLeaderboardBoard(field)
 	local stand = Instance.new("Model")
 	stand.Name = "PanneauClassement"
 	stand.Parent = workspace
 
 	local z = field.goalZ + 24
-	part("Pied", Vector3.new(4, 30, 4),
-		CFrame.new(field.origin.X, field.origin.Y + 15, z), Color3.fromRGB(30, 30, 40), stand, Enum.Material.Metal)
+	-- Trois écrans compacts (28 de large) espacés, plutôt qu'un pavé de 60. Chaque
+	-- écran a sa couleur de titre pour qu'on distingue les classements d'un regard.
+	local screens = {
+		{ metric = "earned", title = "Argent total", accent = Color3.fromRGB(255, 200, 60) },
+		{ metric = "power",  title = "Puissance",    accent = Color3.fromRGB(90, 200, 255) },
+		{ metric = "gems",   title = "Gemmes",       accent = Color3.fromRGB(180, 130, 255) },
+	}
+	local screenW, gapW = 28, 6
+	local pitch = screenW + gapW
+	local baseX = field.origin.X - pitch    -- centre les trois autour de l'axe
 
-	local board = part("Ecran", Vector3.new(60, 34, 2),
-		CFrame.new(field.origin.X, field.origin.Y + 40, z),
-		Color3.fromRGB(12, 14, 20), stand, Enum.Material.SmoothPlastic)
-	board.Orientation = Vector3.new(0, 180, 0)
-
-	return FieldBuilder.boardGui(board, Enum.NormalId.Front)
+	local out = {}
+	for i, s in screens do
+		local x = baseX + (i - 1) * pitch
+		part("Pied", Vector3.new(3, 30, 3),
+			CFrame.new(x, field.origin.Y + 15, z), Color3.fromRGB(30, 30, 40), stand, Enum.Material.Metal)
+		local board = part("Ecran", Vector3.new(screenW, 34, 2),
+			CFrame.new(x, field.origin.Y + 40, z),
+			Color3.fromRGB(12, 14, 20), stand, Enum.Material.SmoothPlastic)
+		board.Orientation = Vector3.new(0, 180, 0)
+		-- Seul le premier écran porte le compte à rebours du coup de sifflet.
+		local gui = FieldBuilder.boardGui(board, Enum.NormalId.Front, s.accent, i == 1)
+		table.insert(out, { gui = gui, metric = s.metric })
+	end
+	return out
 end
 
 return FieldBuilder
