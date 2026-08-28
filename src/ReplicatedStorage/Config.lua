@@ -1251,14 +1251,39 @@ end
 
 -------------------------------------------------------------------------------
 -- MATCH : cycle affiché sur le grand écran.
--- Toutes les `cycle` secondes, coup de sifflet : tous les gains sont multipliés
--- pendant `boostTime` secondes. Le compte à rebours vit côté serveur (le client
--- ne fait que l'afficher via le panneau).
+-- Toutes les `cycle` secondes, coup de sifflet : un ÉVÉNEMENT tiré au hasard
+-- dans Config.Events s'ouvre pour tout le serveur. Le compte à rebours vit côté
+-- serveur (le client ne fait que l'afficher via le panneau).
 -------------------------------------------------------------------------------
 Config.Match = {
 	cycle = 30,
-	boostTime = 10,
-	boostMult = 2,
+}
+
+-------------------------------------------------------------------------------
+-- ÉVÉNEMENTS : la liste dans laquelle le coup de sifflet pioche.
+--
+-- Le même événement pour tout le serveur, annoncé à chacun et écrit sur le
+-- grand écran. Pendant `duration` secondes :
+--   money = multiplicateur d'argent gagné,
+--   power = multiplicateur de puissance du tir,
+--   luck  = multiplicateur de chance aux dés.
+-- 1 = pas d'effet. AJOUTER UN ÉVÉNEMENT = ajouter une ligne ici, rien d'autre.
+-------------------------------------------------------------------------------
+Config.Events = {
+	{ key = "sifflet", name = "📣 COUP DE SIFFLET", desc = "argent ×2",
+	  duration = 10, money = 2, power = 1, luck = 1, color = Color3.fromRGB(120, 255, 140) },
+	{ key = "jackpot", name = "💰 JACKPOT", desc = "argent ×5",
+	  duration = 8,  money = 5, power = 1, luck = 1, color = Color3.fromRGB(255, 215, 80) },
+	{ key = "muscle",  name = "💪 COUP DE MUSCLE", desc = "tir ×2",
+	  duration = 15, money = 1, power = 2, luck = 1, color = Color3.fromRGB(255, 140, 90) },
+	{ key = "etoile",  name = "🍀 ÉTOILE FILANTE", desc = "chance ×3 aux dés",
+	  duration = 20, money = 1, power = 1, luck = 3, color = Color3.fromRGB(140, 220, 255) },
+	{ key = "fete",    name = "🎉 GRANDE FÊTE", desc = "argent ×3 et tir ×1.5",
+	  duration = 12, money = 3, power = 1.5, luck = 1, color = Color3.fromRGB(255, 150, 220) },
+	{ key = "tempete", name = "⚡ TEMPÊTE", desc = "argent ×2 et chance ×2",
+	  duration = 15, money = 2, power = 1, luck = 2, color = Color3.fromRGB(180, 160, 255) },
+	{ key = "canon",   name = "🚀 MODE CANON", desc = "tir ×3",
+	  duration = 10, money = 1, power = 3, luck = 1, color = Color3.fromRGB(255, 90, 90) },
 }
 
 -------------------------------------------------------------------------------
