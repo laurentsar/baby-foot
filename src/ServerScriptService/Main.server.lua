@@ -170,13 +170,23 @@ local function refreshPasses(session: Session, player: Player)
 	end
 end
 
--- Coup de sifflet : fenêtre de bonus commune à tout le serveur (affichée sur le
--- grand écran). Gérée ici, jamais côté client.
+-- Coup de sifflet : fenêtre d'ÉVÉNEMENT commune à tout le serveur (affichée sur
+-- le grand écran). Gérée ici, jamais côté client. `currentEvent` est la ligne de
+-- Config.Events tirée au sort, nil entre deux événements.
+local currentEvent: any = nil
 local boostUntil = 0
 local nextWhistle = os.clock() + Config.Match.cycle
 
 local function boostActive(): boolean
-	return os.clock() < boostUntil
+	return currentEvent ~= nil and os.clock() < boostUntil
+end
+
+-- Multiplicateur donné par l'événement en cours ("money", "power" ou "luck").
+-- 1 s'il n'y a pas d'événement : la formule d'appel reste la même dans tous les
+-- cas, il n'y a pas de branche à écrire ailleurs.
+local function eventMult(kind: string): number
+	if not boostActive() then return 1 end
+	return math.max(1, tonumber(currentEvent[kind]) or 1)
 end
 
 -------------------------------------------------------------------------------
@@ -207,7 +217,7 @@ local function moneyMultiplier(session: Session): number
 	local m = rb
 	if session.passes.VIP then m *= 2 end
 	if session.passes.MoneyX2 then m *= 2 end
-	if boostActive() then m *= Config.Match.boostMult end
+	m *= eventMult("money")   -- événement du serveur en cours
 	-- Monde OÙ L'ON SE TROUVE (et pas le plus haut débloqué) : x2 en Galactique,
 	-- x4 en Radioactif. C'est ce qui donne du sens à la téléportation — revenir au
 	-- Stade pour le décor, c'est accepter de gagner moins.
@@ -220,6 +230,13 @@ local function moneyMultiplier(session: Session): number
 	-- N'affecte ni les dons ni les commandes admin (hors de cette fonction).
 	m *= Config.MoneyGain
 	return m
+end
+
+-- Chance totale aux dés : amélioration en jeu x passe Chance x20 x événement du
+-- serveur, plafonnée comme toute chance (cf. Config.Luck.maxTotal).
+local function luckFor(session: Session): number
+	local l = Config.luckMultiplier(session.data.luck or 0, session.passes.LuckX20 == true)
+	return math.min(l * eventMult("luck"), Config.Luck.maxTotal)
 end
 
 -- Emplacements de joueurs bonus gagnés par les renaissances (voir
@@ -372,7 +389,7 @@ local function buildStats(session: Session)
 		-- CHANCE : niveau, effet courant et prix du niveau suivant.
 		luckLevel = d.luck or 0,
 		luckMax = Config.Luck.maxLevel,
-		luckMult = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true),
+		luckMult = luckFor(session),
 		luckCost = (if (d.luck or 0) < Config.Luck.maxLevel
 			then math.floor(Config.luckCost(d.luck or 0) * costMult) else nil),
 		-- MONDES : celui où l'on est, le plus haut débloqué, et la liste complète
@@ -757,6 +774,7 @@ local function performShot(player: Player, angleDeg: number, chargePct: number, 
 	local speed = (S.baseSpeed + session.data.power * S.powerToSpeed) * tier.speedMult
 	if session.passes.BallSpeedX2 then speed *= 2 end
 	speed *= effectMult(session, "power")   -- potion de puissance
+	speed *= eventMult("power")             -- événement du serveur en cours
 	-- Pendant le défi, pas de plafond de vitesse : c'est une épreuve de distance,
 	-- un plafond ferait terminer tous les gros joueurs à égalité. Le vol reste
 	-- borné dans le temps par la décélération calculée plus bas.
@@ -1392,8 +1410,9 @@ local function performRoll(player: Player, silent: boolean): boolean
 	d.money -= cost
 	d.rolls += 1
 
-	-- Chance = amélioration en jeu (x5 max) x passe Chance x20, plafonnée.
-	local luck = Config.luckMultiplier(d.luck or 0, session.passes.LuckX20 == true)
+	-- Chance = amélioration en jeu (x5 max) x passe Chance x20 x événement,
+	-- plafonnée.
+	local luck = luckFor(session)
 	local key = Config.rollRarity(rng, session.passes.LuckyDice == true, luck)
 	local card = makeCard(d, Config.cardNameFor(key, rng), key)
 	table.insert(d.cards, card)
@@ -2570,8 +2589,9 @@ task.spawn(function()
 end)
 
 -------------------------------------------------------------------------------
--- COUP DE SIFFLET : cycle de 30 s affiché sur le grand écran, puis fenêtre de
--- bonus où tous les gains sont multipliés (voir moneyMultiplier).
+-- COUP DE SIFFLET : cycle de 30 s affiché sur le grand écran, puis un ÉVÉNEMENT
+-- tiré au hasard dans Config.Events (argent, puissance de tir ou chance selon
+-- l'événement — voir moneyMultiplier, performShot et luckFor).
 -------------------------------------------------------------------------------
 task.spawn(function()
 	local M = Config.Match
@@ -2579,24 +2599,27 @@ task.spawn(function()
 		local now = os.clock()
 
 		if now >= nextWhistle then
-			boostUntil = now + M.boostTime
-			-- Le cycle suivant repart APRÈS le bonus, sinon deux fenêtres se
+			-- Un événement au hasard, le même pour tout le serveur.
+			local ev = Config.Events[rng:NextInteger(1, #Config.Events)]
+			currentEvent = ev
+			boostUntil = now + ev.duration
+			-- Le cycle suivant repart APRÈS l'événement, sinon deux fenêtres se
 			-- chevaucheraient et le bonus ne s'arrêterait jamais.
-			nextWhistle = now + M.boostTime + M.cycle
+			nextWhistle = now + ev.duration + M.cycle
 			for player in sessions do
 				rToast:FireClient(player, string.format(
-					"📣 COUP DE SIFFLET — argent ×%d pendant %d s !", M.boostMult, M.boostTime))
+					"%s — %s pendant %d s !", ev.name, ev.desc, ev.duration))
 			end
 		end
 
 		local text, color
 		if boostActive() then
-			text = string.format("🔥 ARGENT ×%d — encore %d s",
-				M.boostMult, math.ceil(boostUntil - now))
-			color = Color3.fromRGB(120, 255, 140)
+			text = string.format("%s — %s, encore %d s",
+				currentEvent.name, currentEvent.desc, math.ceil(boostUntil - now))
+			color = currentEvent.color
 		else
-			text = string.format("⏱ Prochain bonus ×%d dans %d s",
-				M.boostMult, math.max(0, math.ceil(nextWhistle - now)))
+			text = string.format("⏱ Prochain événement dans %d s",
+				math.max(0, math.ceil(nextWhistle - now)))
 			color = Color3.fromRGB(255, 210, 60)
 		end
 		for _, board in boards do
