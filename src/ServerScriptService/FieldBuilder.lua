@@ -1129,9 +1129,10 @@ function FieldBuilder.buildEntrance(originOverride: Vector3?)
 	spawnPad.Anchored = true
 	spawnPad.Size = Vector3.new(14, 1, 14)
 	spawnPad.CFrame = CFrame.new(o.X, o.Y + 1, plazaZ)
-	spawnPad.Color = Color3.fromRGB(255, 210, 60)
-	spawnPad.Material = Enum.Material.Neon
-	-- Marqueur visuel seulement : tous les SpawnLocation de plot sont désactivés
+	-- Invisible : on ne veut plus voir le carré jaune sur le parvis.
+	spawnPad.Transparency = 1
+	spawnPad.CanCollide = false
+	-- Marqueur invisible seulement : tous les SpawnLocation de plot sont désactivés
 	-- (Roblox en choisirait un au hasard et on arriverait chez le voisin). Le
 	-- point d'apparition par défaut est créé une fois pour toutes par le serveur,
 	-- hors plot — un plot est détruit quand son joueur part.

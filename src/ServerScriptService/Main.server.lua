@@ -2504,8 +2504,9 @@ do
 	lobby.Anchored = true
 	lobby.Neutral = true
 	lobby.Size = Vector3.new(16, 1, 16)
-	lobby.Color = Color3.fromRGB(255, 210, 60)
-	lobby.Material = Enum.Material.Neon
+	-- Invisible : le point d'apparition ne doit pas se voir (plus de carré jaune).
+	lobby.Transparency = 1
+	lobby.CanCollide = false
 	lobby.CFrame = CFrame.new(Config.Field.origin
 		+ Vector3.new(0, 1, Config.Field.shootLine - Config.Entrance.plazaOffset))
 	lobby.Parent = workspace
