@@ -1429,7 +1429,7 @@ Config.QuestColors = {
 -- Les quêtes se RÉACTUALISENT toutes les `QuestCycle` secondes : leurs objectifs
 -- se mesurent sur ce que tu gagnes PENDANT LE CYCLE (pas sur ton total à vie), et
 -- le compteur repart à zéro à chaque réactualisation. On peut donc les refaire.
-Config.QuestCycle = 600   -- 10 minutes
+Config.QuestCycle = 180   -- 3 minutes
 
 Config.Quests = {
 	{ id = "q_earn1",  title = "Gagner 25K $ (ce cycle)",     difficulty = "facile",    metric = "earned", target = 25e3,  gems = 2 },
