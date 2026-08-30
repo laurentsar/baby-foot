@@ -1322,6 +1322,16 @@ Config.AdminEvents = {
 	  duration = 60, money = 5, power = 2, luck = 2, color = Color3.fromRGB(255, 140, 230) },
 	{ key = "folie",    name = "🌈 FOLIE TOTALE", desc = "tout ×10",
 	  duration = 20, money = 10, power = 10, luck = 10, color = Color3.fromRGB(200, 140, 255) },
+	{ key = "coffre",   name = "🏦 COFFRE OUVERT", desc = "argent ×25",
+	  duration = 20, money = 25, power = 1, luck = 1, color = Color3.fromRGB(255, 200, 60) },
+	{ key = "fusee",    name = "🛰 TIR FUSÉE", desc = "tir ×10",
+	  duration = 20, money = 1, power = 10, luck = 1, color = Color3.fromRGB(120, 200, 255) },
+	{ key = "chanceux", name = "🎰 SUPER CHANCE", desc = "chance ×20 aux dés",
+	  duration = 20, money = 1, power = 1, luck = 20, color = Color3.fromRGB(160, 255, 160) },
+	{ key = "feu",      name = "🎆 FEU D'ARTIFICE", desc = "argent ×8 et tir ×3",
+	  duration = 45, money = 8, power = 3, luck = 1, color = Color3.fromRGB(255, 110, 170) },
+	{ key = "legende",  name = "👑 MODE LÉGENDE", desc = "tout ×50",
+	  duration = 15, money = 50, power = 50, luck = 50, color = Color3.fromRGB(255, 60, 60) },
 }
 
 -- La ligne de Config.AdminEvents portant cette clé, ou nil si elle n'existe pas.
