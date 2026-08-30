@@ -2768,3 +2768,177 @@ do
 end
 
 print("[BabyFoot] Serveur prêt.")
+
+--------------------------------------------------------------------------------
+-- TÉLÉCOMMANDE « Roblox Cmd » (APK) — MessagingService, topic « AppCommands ».
+--
+--   [APK] → relais :8790 → Open Cloud publish → SubscribeAsync ci-dessous.
+--
+-- ⚠️ Ne marche que sur le jeu PUBLIÉ : MessagingService est inactif en édition
+--    Studio et en test local. Roblox accepte la publication du message (HTTP
+--    200) même si personne n'écoute : sans ce bloc, la commande part, l'appli
+--    affiche « envoyé », et rien ne se passe en jeu.
+--------------------------------------------------------------------------------
+do
+	local AppMessaging = game:GetService("MessagingService")
+	local AppHttp = game:GetService("HttpService")
+	local AppPlayers = game:GetService("Players")
+	local APP_TOPIC = "AppCommands"
+	local appBans = game:GetService("DataStoreService"):GetDataStore("AppCommandBans")
+
+	local function findPlayer(name: any): Player?
+		if typeof(name) ~= "string" then return nil end
+		local wanted = string.lower(name)
+		for _, p in AppPlayers:GetPlayers() do
+			if string.lower(p.Name) == wanted or string.lower(p.DisplayName) == wanted then
+				return p
+			end
+		end
+		return nil
+	end
+
+	local function broadcast(text: string)
+		for _, p in AppPlayers:GetPlayers() do
+			rToast:FireClient(p, text)
+		end
+	end
+
+	-- « Donner » n'a qu'un champ texte dans l'appli : « argent 5000 »,
+	-- « gemmes 50 », « legendary 3 ». On en tire un mot-clé et un nombre.
+	local function parseItem(item: any): (string, number)
+		if typeof(item) ~= "string" then return "", 0 end
+		local word = string.lower(string.match(item, "^%s*(%a+)") or "")
+		local amount = tonumber(string.match(item, "([%d%.]+)%s*$") or "") or 0
+		return word, amount
+	end
+
+	local appHandlers: { [string]: (any) -> () } = {}
+
+	function appHandlers.announce(cmd)
+		broadcast("📢 " .. tostring(cmd.text or ""))
+	end
+
+	function appHandlers.kick(cmd)
+		local p = findPlayer(cmd.player)
+		if p then p:Kick(tostring(cmd.reason or "Expulsé par l'administrateur")) end
+	end
+
+	function appHandlers.ban(cmd)
+		if typeof(cmd.player) ~= "string" then return end
+		local p = findPlayer(cmd.player)
+		local key = if p then tostring(p.UserId) else "name:" .. string.lower(cmd.player)
+		pcall(function() appBans:SetAsync(key, cmd.reason or true) end)
+		if p then p:Kick(tostring(cmd.reason or "Banni")) end
+	end
+
+	-- Mêmes effets que le panneau admin (rAdmin) : on repasse par capStat,
+	-- updateLeaderstats et pushStats pour que plafond, leaderstats et
+	-- sauvegarde restent cohérents.
+	function appHandlers.give(cmd)
+		local p = findPlayer(cmd.player)
+		local session = if p then sessions[p] else nil
+		if not p or not session then return end
+		local what, amount = parseItem(cmd.item)
+
+		if what == "money" or what == "argent" then
+			local n = math.floor((if amount > 0 then amount else 1000))
+			session.data.money = capStat(session.data.money + n)
+			session.data.totalEarned = capStat(session.data.totalEarned + n)
+			updateLeaderstats(session, p)
+			rToast:FireClient(p, "[appli] +" .. Config.abbreviate(n) .. " $")
+
+		elseif what == "power" or what == "puissance" then
+			local n = math.floor((if amount > 0 then amount else 100))
+			session.data.power = capStat(session.data.power + n)
+			updateLeaderstats(session, p)
+			rToast:FireClient(p, "[appli] +" .. Config.abbreviate(n) .. " puissance")
+
+		elseif what == "gems" or what == "gemmes" then
+			local n = math.floor((if amount > 0 then amount else 10))
+			session.data.gems = (tonumber(session.data.gems) or 0) + n
+			rToast:FireClient(p, "[appli] +" .. Config.abbreviate(n) .. " 💎")
+
+		elseif Config.rarity(what).key == what then
+			local count = math.clamp(math.floor((if amount > 0 then amount else 1)), 1, 50)
+			for _ = 1, count do
+				table.insert(session.data.cards,
+					makeCard(session.data, Config.cardNameFor(what, rng), what))
+			end
+			repopulate(session)
+			pushCollection(p)
+			rToast:FireClient(p, "[appli] +" .. count .. " " .. Config.rarity(what).name)
+
+		else
+			rToast:FireClient(p, "[appli] objet inconnu : " .. tostring(cmd.item))
+			return
+		end
+		pushStats(p)
+	end
+
+	function appHandlers.teleport(cmd)
+		local p = findPlayer(cmd.player)
+		local char = if p then p.Character else nil
+		local hrp = if char then char:FindFirstChild("HumanoidRootPart") else nil
+		if not hrp or not hrp:IsA("BasePart") then return end
+		if typeof(cmd.target) == "string" then
+			local dest = workspace:FindFirstChild(cmd.target, true)
+			if dest and dest:IsA("BasePart") then
+				hrp.CFrame = dest.CFrame + Vector3.new(0, 5, 0)
+			end
+		elseif cmd.x then
+			hrp.CFrame = CFrame.new(tonumber(cmd.x) or 0, tonumber(cmd.y) or 5, tonumber(cmd.z) or 0)
+		end
+	end
+
+	function appHandlers.event(cmd)
+		local name = string.lower(tostring(cmd.name or ""))
+		if name == "rich" or name == "argent" then
+			local n = math.floor(tonumber(cmd.data) or 10000)
+			for p, session in sessions do
+				session.data.money = capStat(session.data.money + n)
+				session.data.totalEarned = capStat(session.data.totalEarned + n)
+				updateLeaderstats(session, p)
+				pushStats(p)
+			end
+			broadcast("💰 Pluie d'argent : +" .. Config.abbreviate(n) .. " $ pour tout le monde !")
+		elseif name == "gems" or name == "gemmes" then
+			local n = math.floor(tonumber(cmd.data) or 50)
+			for p, session in sessions do
+				session.data.gems = (tonumber(session.data.gems) or 0) + n
+				pushStats(p)
+			end
+			broadcast("💎 +" .. Config.abbreviate(n) .. " gemmes pour tout le monde !")
+		else
+			broadcast("🎉 Événement : " .. tostring(cmd.name or ""))
+		end
+	end
+
+	-- Bans posés depuis l'appli : ils doivent tenir même quand le joueur
+	-- revient sur un autre serveur, donc relecture à la connexion.
+	AppPlayers.PlayerAdded:Connect(function(p)
+		local banned
+		pcall(function()
+			banned = appBans:GetAsync(tostring(p.UserId))
+				or appBans:GetAsync("name:" .. string.lower(p.Name))
+		end)
+		if banned then
+			p:Kick((if typeof(banned) == "string" then banned else "Vous êtes banni."))
+		end
+	end)
+
+	local subscribed, err = pcall(function()
+		return AppMessaging:SubscribeAsync(APP_TOPIC, function(packet)
+			local decoded, cmd = pcall(function() return AppHttp:JSONDecode(packet.Data) end)
+			if not decoded or typeof(cmd) ~= "table" then return end
+			local h = appHandlers[tostring(cmd.type)]
+			if not h then return end
+			local ran, hErr = pcall(h, cmd)
+			if not ran then warn("[AppCommands] " .. tostring(cmd.type) .. " : " .. tostring(hErr)) end
+		end)
+	end)
+	if subscribed then
+		print("[AppCommands] connecté à l'appli (topic " .. APP_TOPIC .. ")")
+	else
+		warn("[AppCommands] non connecté (jeu publié ?) : " .. tostring(err))
+	end
+end
