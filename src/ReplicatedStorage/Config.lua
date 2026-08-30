@@ -1287,6 +1287,52 @@ Config.Events = {
 }
 
 -------------------------------------------------------------------------------
+-- SAISONS : toutes les Config.SeasonCycle secondes, une saison est tirée au
+-- hasard entre printemps, été, automne et hiver. Elle dure jusqu'à la suivante
+-- et son bonus se cumule avec l'événement en cours (mêmes champs money / power
+-- / luck que Config.Events).
+-------------------------------------------------------------------------------
+Config.SeasonCycle = 1800   -- 30 minutes
+
+Config.Seasons = {
+	{ key = "printemps", name = "🌸 PRINTEMPS", desc = "chance ×2",
+	  money = 1, power = 1, luck = 2, color = Color3.fromRGB(150, 240, 150) },
+	{ key = "ete",       name = "☀️ ÉTÉ", desc = "argent ×2",
+	  money = 2, power = 1, luck = 1, color = Color3.fromRGB(255, 220, 90) },
+	{ key = "automne",   name = "🍂 AUTOMNE", desc = "tir ×2",
+	  money = 1, power = 2, luck = 1, color = Color3.fromRGB(255, 160, 80) },
+	{ key = "hiver",     name = "❄️ HIVER", desc = "argent ×1.5 et chance ×1.5",
+	  money = 1.5, power = 1, luck = 1.5, color = Color3.fromRGB(150, 220, 255) },
+}
+
+-------------------------------------------------------------------------------
+-- ÉVÉNEMENTS ADMIN : le coup de sifflet ne les tire JAMAIS au sort. Seul un
+-- UserId de Config.Admins peut les lancer, depuis le panneau 🛠 — l'événement
+-- s'ouvre alors pour tout le serveur. Mêmes champs que Config.Events.
+-- AJOUTER UN ÉVÉNEMENT ADMIN = ajouter une ligne ici, rien d'autre.
+-------------------------------------------------------------------------------
+Config.AdminEvents = {
+	{ key = "pluie",    name = "💵 PLUIE DE BILLETS", desc = "argent ×10",
+	  duration = 30, money = 10, power = 1, luck = 1, color = Color3.fromRGB(120, 255, 180) },
+	{ key = "supertir", name = "🔥 SUPER TIR", desc = "tir ×5",
+	  duration = 30, money = 1, power = 5, luck = 1, color = Color3.fromRGB(255, 120, 60) },
+	{ key = "trefle",   name = "🍀 TRÈFLE D'OR", desc = "chance ×5 aux dés",
+	  duration = 30, money = 1, power = 1, luck = 5, color = Color3.fromRGB(255, 230, 120) },
+	{ key = "carnaval", name = "🎪 CARNAVAL", desc = "argent ×5, tir ×2 et chance ×2",
+	  duration = 60, money = 5, power = 2, luck = 2, color = Color3.fromRGB(255, 140, 230) },
+	{ key = "folie",    name = "🌈 FOLIE TOTALE", desc = "tout ×10",
+	  duration = 20, money = 10, power = 10, luck = 10, color = Color3.fromRGB(200, 140, 255) },
+}
+
+-- La ligne de Config.AdminEvents portant cette clé, ou nil si elle n'existe pas.
+function Config.adminEvent(key: string)
+	for _, ev in Config.AdminEvents do
+		if ev.key == key then return ev end
+	end
+	return nil
+end
+
+-------------------------------------------------------------------------------
 -- PUBLIC
 -- soundId : cri de foule joué sur but. Laisse "" si tu n'as pas d'audio : depuis
 -- la mise à jour "audio privacy" de Roblox, un son uploadé par quelqu'un d'autre

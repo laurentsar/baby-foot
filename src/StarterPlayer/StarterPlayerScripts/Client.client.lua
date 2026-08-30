@@ -2122,6 +2122,19 @@ for _, r in Config.Rarities do
 	adminOrder += 1
 end
 
+-- Événements réservés à l'admin : un bouton par ligne de Config.AdminEvents.
+-- Le serveur revérifie que le joueur est bien admin avant de les lancer.
+adminHeader("🎪 ÉVÉNEMENTS ADMIN", adminOrder)
+adminOrder += 1
+for _, ev in Config.AdminEvents do
+	local b = button(ev.name .. " — " .. ev.desc, ev.color, adminScroll)
+	b.Size = UDim2.new(1, 0, 0, 30); b.TextSize = 13; b.LayoutOrder = adminOrder
+	b.MouseButton1Click:Connect(function()
+		rAdmin:FireServer({ kind = "event", key = ev.key })
+	end)
+	adminOrder += 1
+end
+
 adminToggle.MouseButton1Click:Connect(function() togglePanel(adminPanel) end)
 
 -------------------------------------------------------------------------------
