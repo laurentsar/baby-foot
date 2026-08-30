@@ -181,12 +181,21 @@ local function boostActive(): boolean
 	return currentEvent ~= nil and os.clock() < boostUntil
 end
 
--- Multiplicateur donné par l'événement en cours ("money", "power" ou "luck").
--- 1 s'il n'y a pas d'événement : la formule d'appel reste la même dans tous les
--- cas, il n'y a pas de branche à écrire ailleurs.
+-- Saison en cours (printemps, été, automne ou hiver), tirée au sort toutes les
+-- Config.SeasonCycle secondes. Contrairement à l'événement, il y en a toujours
+-- une : son bonus s'applique en permanence.
+local currentSeason: any = Config.Seasons[rng:NextInteger(1, #Config.Seasons)]
+
+-- Multiplicateur donné par l'événement en cours ET par la saison en cours
+-- ("money", "power" ou "luck"). 1 s'il n'y a pas d'événement : la formule
+-- d'appel reste la même dans tous les cas, il n'y a pas de branche à écrire
+-- ailleurs.
 local function eventMult(kind: string): number
-	if not boostActive() then return 1 end
-	return math.max(1, tonumber(currentEvent[kind]) or 1)
+	local m = math.max(1, tonumber(currentSeason[kind]) or 1)
+	if boostActive() then
+		m *= math.max(1, tonumber(currentEvent[kind]) or 1)
+	end
+	return m
 end
 
 -------------------------------------------------------------------------------
@@ -1255,6 +1264,22 @@ rAdmin.OnServerEvent:Connect(function(player, payload)
 		pushCollection(player)
 		pushStats(player)
 		rToast:FireClient(player, "[admin] +" .. count .. " " .. Config.rarity(rarity).name)
+
+	elseif payload.kind == "event" then
+		-- Lance un ÉVÉNEMENT ADMIN pour tout le serveur (jamais tiré au sort par
+		-- le coup de sifflet, cf. Config.AdminEvents).
+		if typeof(payload.key) ~= "string" then return end
+		local ev = Config.adminEvent(payload.key)
+		if not ev then return end
+		currentEvent = ev
+		boostUntil = os.clock() + ev.duration
+		-- Le cycle du coup de sifflet repart APRÈS l'événement, sinon deux
+		-- fenêtres se chevaucheraient.
+		nextWhistle = boostUntil + Config.Match.cycle
+		for other in sessions do
+			rToast:FireClient(other, string.format(
+				"%s — %s pendant %d s !", ev.name, ev.desc, ev.duration))
+		end
 	end
 end)
 
@@ -2590,6 +2615,22 @@ task.spawn(function()
 end)
 
 -------------------------------------------------------------------------------
+-- SAISONS : toutes les Config.SeasonCycle secondes (30 min), une saison au
+-- hasard entre printemps, été, automne et hiver. Elle reste en place jusqu'à la
+-- suivante et son bonus se cumule avec l'événement en cours (cf. eventMult).
+-------------------------------------------------------------------------------
+task.spawn(function()
+	while true do
+		task.wait(Config.SeasonCycle)
+		currentSeason = Config.Seasons[rng:NextInteger(1, #Config.Seasons)]
+		for player in sessions do
+			rToast:FireClient(player, string.format(
+				"%s — %s pour 30 minutes !", currentSeason.name, currentSeason.desc))
+		end
+	end
+end)
+
+-------------------------------------------------------------------------------
 -- COUP DE SIFFLET : cycle de 30 s affiché sur le grand écran, puis un ÉVÉNEMENT
 -- tiré au hasard dans Config.Events (argent, puissance de tir ou chance selon
 -- l'événement — voir moneyMultiplier, performShot et luckFor).
@@ -2619,9 +2660,10 @@ task.spawn(function()
 				currentEvent.name, currentEvent.desc, math.ceil(boostUntil - now))
 			color = currentEvent.color
 		else
-			text = string.format("⏱ Prochain événement dans %d s",
+			text = string.format("%s — %s · ⏱ Prochain événement dans %d s",
+				currentSeason.name, currentSeason.desc,
 				math.max(0, math.ceil(nextWhistle - now)))
-			color = Color3.fromRGB(255, 210, 60)
+			color = currentSeason.color
 		end
 		for _, board in boards do
 			-- Récursif : le label vit dans le cadre arrondi de la SurfaceGui, et
